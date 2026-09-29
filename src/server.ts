@@ -1,4 +1,4 @@
-import { Agent, Plugin } from "@opencode/plugin"
+import type { Agent, Plugin } from "@opencode/plugin"
 import { covered } from "./gate.ts"
 import { amend, approvedFiles, editedFiles, propose, recordTouch, review, updateStep, type Result } from "./plan.ts"
 import {
@@ -24,13 +24,14 @@ import { createStore } from "./store.ts"
 const TOOL = { propose: "plan_propose", ask: "plan_ask", step: "plan_step", amend: "plan_amend" } as const
 const EXECUTION_TOOLS = [TOOL.step, TOOL.amend] as const
 const PAUSED = "The plan is paused for the user's review. End your turn now."
+const ARCHITECT_NAME = "Architect" as Agent.Name
 const EDIT_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "patch"])
 
 const wrap = (result: Result<Plan>): Result<{ readonly plan: Plan }> =>
   result.ok ? { ok: true, value: { plan: result.value } } : result
 const missing = (error: string): Result<never> => ({ ok: false, error })
 
-export default Plugin.define({
+const plugin: Plugin.Plugin = {
   id: "smykla.plan-review",
   async setup(ctx) {
     const options = OptionsSchema.parse(ctx.options ?? {})
@@ -89,7 +90,7 @@ export default Plugin.define({
 
     await ctx.agent.transform((editor) => {
       editor.update(options.agent, (agent) => {
-        agent.name = Agent.Name.make("Architect")
+        agent.name = ARCHITECT_NAME
         agent.description = "Plans changes as structured, reviewable steps. Never edits files."
         agent.mode = "primary"
         agent.system = ARCHITECT_SYSTEM
@@ -214,4 +215,6 @@ export default Plugin.define({
       })
     })
   },
-})
+}
+
+export default plugin

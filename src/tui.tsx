@@ -1,4 +1,4 @@
-import { Plugin } from "@opencode/plugin/tui"
+import type { Plugin } from "@opencode/plugin/tui"
 import { createEffect, Match, Show, Switch } from "solid-js"
 import { tallyLine } from "./render.ts"
 import type { ChangeReason } from "./rpc.ts"
@@ -15,7 +15,7 @@ const notice = (reason: ChangeReason, view: View) => {
   return null
 }
 
-export default Plugin.define({
+const plugin: Plugin.Definition = {
   id: "smykla.plan-review",
   setup(ctx) {
     const state = createState(ctx)
@@ -139,4 +139,6 @@ export default Plugin.define({
 
     return unsubscribe
   },
-})
+}
+
+export default plugin

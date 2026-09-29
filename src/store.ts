@@ -14,9 +14,28 @@ const questionsKey = (sessionID: string) => `questions/${sessionID}`
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Json
 
-/** Plugin storage survives restarts, so a pending review is never lost with the process. */
+/**
+ * Plugin storage survives restarts, so a pending review is never lost with the process.
+ * opencode runs a turn's tool calls concurrently, so every read-modify-write of a session's
+ * plan goes through `exclusive` or a stale copy can overwrite a newer state.
+ */
 export function createStore(kv: KV) {
+  const queues = new Map<string, Promise<unknown>>()
+  const exclusive = <A>(sessionID: string, run: () => Promise<A>): Promise<A> => {
+    const next = (queues.get(sessionID) ?? Promise.resolve()).then(run, run)
+    const tail = next.then(
+      () => null,
+      () => null,
+    )
+    queues.set(sessionID, tail)
+    void tail.then(() => {
+      if (queues.get(sessionID) === tail) queues.delete(sessionID)
+      return null
+    })
+    return next
+  }
   return {
+    exclusive,
     async plan(sessionID: string) {
       const parsed = PlanSchema.safeParse(await kv.get(planKey(sessionID)))
       return parsed.success ? parsed.data : undefined

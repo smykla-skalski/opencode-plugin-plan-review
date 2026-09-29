@@ -44,9 +44,9 @@ export function propose(previous: Plan | undefined, input: PlanInput, sessionID:
   const before = new Map(previous?.steps.map((step) => [step.id, step]))
   const steps = input.steps.map((step): Step => {
     const prior = before.get(step.id)
-    if (prior && SETTLED.has(prior.status) && unchanged(prior, step))
-      return { ...step, status: prior.status, origin: prior.origin, touched: prior.touched, check: prior.check }
-    return fresh(step, "proposed", "plan")
+    if (!prior || !unchanged(prior, step)) return fresh(step, "proposed", "plan")
+    const status = SETTLED.has(prior.status) ? prior.status : "proposed"
+    return { ...step, status, origin: prior.origin, touched: prior.touched, check: prior.check }
   })
   return ok({
     ...input,
@@ -55,7 +55,7 @@ export function propose(previous: Plan | undefined, input: PlanInput, sessionID:
     version: (previous?.version ?? 0) + 1,
     state: "review",
     reviewReason: "plan",
-    outside: previous?.outside ?? [],
+    outside: previous && previous.state !== "done" ? previous.outside : [],
     createdAt: now,
   })
 }
@@ -86,8 +86,7 @@ export function review(plan: Plan, input: Review): Result<Plan> {
   })
 
   if (input.action === "revise") return ok({ ...plan, steps })
-  const pending = steps.filter((step) => step.status === "approved" || step.status === "in_progress")
-  if (!pending.length) return fail("Nothing to execute: approve at least one step that is not finished.")
+  if (!steps.some((step) => unfinished(step))) return fail("Nothing to execute: approve at least one step that is not finished.")
   return ok({ ...plan, steps, state: "executing" })
 }
 
@@ -109,11 +108,9 @@ export function amend(plan: Plan, input: Amend, directory: string): Result<Amend
   if (missing.length) return fail(`dependsOn references unknown step ids: ${missing.join(", ")}`)
 
   const allowed = approvedFiles(plan)
+  const within = (file: string) => (isGlob(file) ? allowed.includes(file) : covered(file, allowed, directory))
   const routine = (step: StepInput) =>
-    !step.needsYou &&
-    step.risk !== "high" &&
-    step.files.length > 0 &&
-    step.files.every((file) => covered(file, allowed, directory))
+    !step.needsYou && step.risk !== "high" && step.files.length > 0 && step.files.every((file) => within(file))
   const added = input.steps.map((step) => ({
     ...fresh(step, routine(step) ? "approved" : "proposed", "amendment"),
     rationale: step.rationale ?? input.reason,
@@ -145,10 +142,12 @@ export function updateStep(plan: Plan, update: StepUpdate, mode: Checkpoint = "o
   const next: Step = { ...target, status: update.status, note: update.note ?? target.note, check: update.check ?? target.check }
   const steps = plan.steps.map((step) => (step.id === update.stepID ? next : step))
   const remaining = steps.some((step) => step.status === "approved" || step.status === "in_progress")
-  if (!remaining) return ok({ ...plan, steps, state: "done" })
   const settled = update.status === "done" || update.status === "blocked"
-  if (settled && needsCheckpoint(next, mode)) return ok({ ...plan, steps, state: "review", reviewReason: "checkpoint" })
-  return ok({ ...plan, steps })
+  const pause = settled && needsCheckpoint(next, mode)
+  if (remaining) return ok(pause ? { ...plan, steps, state: "review", reviewReason: "checkpoint" } : { ...plan, steps })
+  if (mode !== "off" && steps.some((step) => troubled(step)))
+    return ok({ ...plan, steps, state: "review", reviewReason: "checkpoint" })
+  return ok({ ...plan, steps, state: "done" })
 }
 
 /** Attributes edited files to the steps in progress, or to the plan when no step claims them. */
@@ -169,6 +168,29 @@ export const drift = (step: Step, directory: string) =>
   step.touched.filter((file) => !covered(file, step.files, directory))
 
 const merge = (a: readonly string[], b: readonly string[]) => [...new Set([...a, ...b])]
+
+const isGlob = (file: string) => file.includes("*") || file.includes("?")
+
+/** A step that stopped short: blocked, or finished with a failing check. */
+export const troubled = (step: Step) =>
+  step.status === "blocked" || (step.status === "done" && step.check?.outcome === "fail")
+
+const unfinished = (step: Step) =>
+  step.status === "approved" || step.status === "in_progress" || troubled(step)
+
+type Fields = Readonly<Record<string, unknown>>
+const isRecord = (value: unknown): value is Fields => typeof value === "object" && value !== null
+const strings = (value: unknown, key: string) =>
+  Array.isArray(value)
+    ? value.flatMap((item) => (isRecord(item) && typeof item[key] === "string" ? [item[key] as string] : []))
+    : []
+
+/** Files a successful edit, write or patch changed, read from the tool's structured output. */
+export function editedFiles(output: unknown): string[] {
+  if (!isRecord(output)) return []
+  const single = typeof output.resource === "string" ? [output.resource] : []
+  return [...new Set([...single, ...strings(output.files, "file"), ...strings(output.applied, "resource")])]
+}
 
 function relativeTo(resource: string, directory: string) {
   if (!resource.startsWith("/")) return resource

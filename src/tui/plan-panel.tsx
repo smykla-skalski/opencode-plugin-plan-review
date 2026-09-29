@@ -144,11 +144,17 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   const submit = async (action: "revise" | "execute") => {
     if (!reviewing()) return
     if (action === "execute") {
-      const pending = props.plan.steps.filter((item) => effectiveStatus(item, draft().steps[item.id]) === "approved")
+      const status = (item: Step) => effectiveStatus(item, draft().steps[item.id])
+      const pending = props.plan.steps.filter((item) => status(item) === "approved")
+      const skipped = props.plan.steps.filter((item) => ["proposed", "rejected", "revise"].includes(status(item)))
+      const hidden = skipped.filter((item) => !visible().includes(item)).length
       const resuming = props.plan.reviewReason !== "plan"
+      const skipLine = skipped.length
+        ? ` Skipped (not approved): ${skipped.map((item) => item.id).join(", ")}${hidden ? `, ${hidden} of them folded; press A to approve all or . to show them` : ""}.`
+        : ""
       const confirmed = await props.ctx.ui.dialog.confirm({
         title: resuming ? "Continue execution?" : "Execute approved steps?",
-        message: `${pending.length} approved step(s) left to run on the build agent. Steps not approved are skipped.`,
+        message: `${pending.length} approved step(s) left to run on the build agent.${skipLine}`,
         label: { confirm: resuming ? "Continue" : "Execute" },
       })
       if (!confirmed) return

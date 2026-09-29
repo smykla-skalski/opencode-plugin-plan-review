@@ -65,7 +65,7 @@ function nextInstruction(plan: Plan, action: Review["action"]) {
       : "The user approved continuing. Carry on with the remaining approved steps."
   if (plan.reviewReason === "plan")
     return "Revise the plan: address every comment and every step marked revise or rejected, keep ids of steps you keep, then call plan_propose again. Ask with plan_ask only if something is genuinely ambiguous."
-  return "Adjust the remaining work to the comments: add steps with plan_amend, or call plan_propose to replace the plan (finished steps you keep unchanged stay finished). Then end your turn."
+  return "Adjust the remaining work to the comments: call plan_propose with the full updated plan, keeping the ids, titles, details and files of steps you keep unchanged so finished steps stay finished and their results carry over. Then end your turn."
 }
 
 /** The review as the model receives it, plus the one-line notice the timeline shows. */
@@ -97,8 +97,9 @@ export function buildReminder(plan: Plan) {
     `Execute plan v${plan.version} "${plan.title}". Work ONLY on these approved steps, in dependency order:`,
   ]
   for (const step of approved) {
+    const failed = step.check?.outcome === "fail" ? `, check failed: ${step.check.summary}` : ""
     lines.push(
-      `- ${step.id} [${step.status}] ${step.title}${step.files.length ? ` (files: ${step.files.join(", ")})` : ""}`,
+      `- ${step.id} [${step.status}${failed}] ${step.title}${step.files.length ? ` (files: ${step.files.join(", ")})` : ""}`,
       `  ${step.detail.trim().replaceAll("\n", "\n  ")}`,
     )
   }

@@ -121,7 +121,7 @@ describe("render", () => {
     assert.match(digest, /Not done: s2 Two/)
   })
 
-  it("tells the agent to amend rather than re-plan after a checkpoint", () => {
+  it("tells the agent to re-propose after a checkpoint revise", () => {
     const executing = review(plan(), {
       sessionID: "ses_1",
       version: 1,
@@ -139,6 +139,6 @@ describe("render", () => {
     )
     assert.ok(paused.ok)
     const input: Review = { sessionID: "ses_1", version: 1, action: "revise", decisions: [] }
-    assert.match(reviewMessage(paused.value, input).text, /reason="checkpoint"[\s\S]*plan_amend/)
+    assert.match(reviewMessage(paused.value, input).text, /reason="checkpoint"[\s\S]*plan_propose/)
   })
 })

@@ -1,6 +1,6 @@
 import { Agent, Plugin } from "@opencode/plugin"
 import { covered } from "./gate.ts"
-import { amend, approvedFiles, propose, recordTouch, review, updateStep } from "./plan.ts"
+import { amend, approvedFiles, editedFiles, propose, recordTouch, review, updateStep, type Result } from "./plan.ts"
 import {
   AMEND_DESCRIPTION,
   ARCHITECT_SYSTEM,
@@ -24,6 +24,11 @@ import { createStore } from "./store.ts"
 const TOOL = { propose: "plan_propose", ask: "plan_ask", step: "plan_step", amend: "plan_amend" } as const
 const EXECUTION_TOOLS = [TOOL.step, TOOL.amend] as const
 const PAUSED = "The plan is paused for the user's review. End your turn now."
+const EDIT_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "patch"])
+
+const wrap = (result: Result<Plan>): Result<{ readonly plan: Plan }> =>
+  result.ok ? { ok: true, value: { plan: result.value } } : result
+const missing = (error: string): Result<never> => ({ ok: false, error })
 
 export default Plugin.define({
   id: "smykla.plan-review",
@@ -38,11 +43,14 @@ export default Plugin.define({
         return { plan: (await store.plan(sessionID)) ?? null, questions: (await store.questions(sessionID)) ?? null }
       },
       async review(input) {
-        const plan = await store.plan(input.sessionID)
-        if (!plan) return { ok: false, error: "No plan for this session." }
-        const next = review(plan, input)
+        const next = await store.exclusive(input.sessionID, async () => {
+          const plan = await store.plan(input.sessionID)
+          if (!plan) return { ok: false as const, error: "No plan for this session." }
+          const result = review(plan, input)
+          if (result.ok) await store.savePlan(result.value)
+          return result
+        })
         if (!next.ok) return { ok: false, error: next.error }
-        await store.savePlan(next.value)
         await changed(input.sessionID, "reviewed", next.value.version)
         const message = reviewMessage(next.value, input)
         if (input.action === "execute")
@@ -51,9 +59,13 @@ export default Plugin.define({
         return { ok: true }
       },
       async answer(input) {
-        const questions = await store.questions(input.sessionID)
-        if (questions?.id !== input.id) return { ok: false, error: "These questions are no longer pending." }
-        await store.clearQuestions(input.sessionID)
+        const questions = await store.exclusive(input.sessionID, async () => {
+          const pending = await store.questions(input.sessionID)
+          if (pending?.id !== input.id) return null
+          await store.clearQuestions(input.sessionID)
+          return pending
+        })
+        if (!questions) return { ok: false, error: "These questions are no longer pending." }
         await changed(input.sessionID, "answered")
         await ctx.session.synthetic({ sessionID: input.sessionID, ...answersMessage(questions, input), resume: true })
         return { ok: true }
@@ -63,9 +75,16 @@ export default Plugin.define({
     const changed = (sessionID: string, reason: ChangeReason, version?: number) =>
       registration.events.emit("changed", { sessionID, reason, version })
 
-    const saveAndAnnounce = async (plan: Plan, reason: ChangeReason) => {
-      await store.savePlan(plan)
-      await changed(plan.sessionID, reason, plan.version)
+    const transition = async <A extends { readonly plan: Plan }>(
+      sessionID: string,
+      apply: (plan: Plan | undefined) => Result<A>,
+    ) => {
+      const next = await store.exclusive(sessionID, async () => {
+        const result = apply(await store.plan(sessionID))
+        if (result.ok) await store.savePlan(result.value.plan)
+        return result
+      })
+      return next
     }
 
     await ctx.agent.transform((editor) => {
@@ -88,12 +107,15 @@ export default Plugin.define({
         input: PlanInputSchema,
         async execute(input, context) {
           if (!planners.has(context.agent)) return { content: `Only ${[...planners].join(" or ")} can propose plans.` }
-          const next = propose(await store.plan(context.sessionID), input, context.sessionID, Date.now())
+          const next = await transition(context.sessionID, (previous) =>
+            wrap(propose(previous, input, context.sessionID, Date.now())),
+          )
           if (!next.ok) return { content: `Plan rejected: ${next.error}` }
-          await saveAndAnnounce(next.value, "proposed")
+          const { plan } = next.value
+          await changed(plan.sessionID, "proposed", plan.version)
           return {
-            content: `${planMarkdown(next.value)}\n\nPlan v${next.value.version} is in the user's review panel. End your turn now.`,
-            metadata: { version: next.value.version, steps: next.value.steps.length },
+            content: `${planMarkdown(plan)}\n\nPlan v${plan.version} is in the user's review panel. End your turn now.`,
+            metadata: { version: plan.version, steps: plan.steps.length },
           }
         },
       })
@@ -104,7 +126,9 @@ export default Plugin.define({
         async execute(input, context) {
           const invalid = input.questions.filter((q) => q.kind !== "text" && q.kind !== "confirm" && !q.options?.length)
           if (invalid.length) return { content: `Questions ${invalid.map((q) => q.id).join(", ")} need options.` }
-          await store.saveQuestions({ ...input, id: `q${Date.now()}`, sessionID: context.sessionID })
+          await store.exclusive(context.sessionID, () =>
+            store.saveQuestions({ ...input, id: `q${Date.now()}`, sessionID: context.sessionID }),
+          )
           await changed(context.sessionID, "questions")
           return { content: "The questions are in the user's review panel. End your turn and wait for <plan-answers>." }
         },
@@ -114,15 +138,16 @@ export default Plugin.define({
         description: STEP_DESCRIPTION,
         input: StepUpdateSchema,
         async execute(input, context) {
-          const plan = await store.plan(context.sessionID)
-          if (!plan) return { content: "There is no plan in this session." }
-          const next = updateStep(plan, input, options.checkpoint)
+          const next = await transition(context.sessionID, (plan) =>
+            plan ? wrap(updateStep(plan, input, options.checkpoint)) : missing("There is no plan in this session."),
+          )
           if (!next.ok) return { content: next.error }
-          const { state } = next.value
-          await saveAndAnnounce(next.value, state === "done" ? "done" : state === "review" ? "checkpoint" : "step")
+          const { plan } = next.value
+          const { state } = plan
+          await changed(plan.sessionID, state === "done" ? "done" : state === "review" ? "checkpoint" : "step", plan.version)
           const metadata = { step: input.stepID, status: input.status }
           if (state === "done")
-            return { content: `All approved steps are finished.\n\n${digestMarkdown(next.value, directory)}`, metadata }
+            return { content: `All approved steps are finished.\n\n${digestMarkdown(plan, directory)}`, metadata }
           if (state === "review") return { content: `${input.stepID} → ${input.status}. Checkpoint: ${PAUSED}`, metadata }
           return { content: `${input.stepID} → ${input.status}`, metadata }
         },
@@ -132,11 +157,11 @@ export default Plugin.define({
         description: AMEND_DESCRIPTION,
         input: AmendSchema,
         async execute(input, context) {
-          const plan = await store.plan(context.sessionID)
-          if (!plan) return { content: "There is no plan in this session; use plan_propose." }
-          const next = amend(plan, input, directory)
+          const next = await transition(context.sessionID, (plan) =>
+            plan ? amend(plan, input, directory) : missing("There is no plan in this session; use plan_propose."),
+          )
           if (!next.ok) return { content: next.error }
-          await saveAndAnnounce(next.value.plan, next.value.paused ? "amended" : "step")
+          await changed(context.sessionID, next.value.paused ? "amended" : "step", next.value.plan.version)
           const ids = input.steps.map((step) => step.id).join(", ")
           return {
             content: next.value.paused
@@ -169,15 +194,24 @@ export default Plugin.define({
 
     await ctx.permission.hook("evaluate", async (event) => {
       if (event.action !== "edit" || event.agent !== options.buildAgent) return
+      if (options.gate === "off" || event.effect === "deny") return
       const plan = await store.plan(event.sessionID)
       if (plan?.state !== "executing") return
-      await store.savePlan(recordTouch(plan, event.resources, directory))
-      if (options.gate === "off" || event.effect === "deny") return
       const files = approvedFiles(plan)
       const outside = event.resources.filter((resource) => !covered(resource, files, directory))
       if (!outside.length) return
       event.effect = options.gate
       event.message = `Not covered by approved plan v${plan.version}: ${outside.join(", ")}. Consider plan_amend.`
+    })
+
+    await ctx.tool.hook("execute.after", async (event) => {
+      if (event.status !== "completed" || event.agent !== options.buildAgent || !EDIT_TOOLS.has(event.tool)) return
+      const files = editedFiles(event.result.output)
+      if (!files.length) return
+      await store.exclusive(event.sessionID, async () => {
+        const plan = await store.plan(event.sessionID)
+        if (plan?.state === "executing") await store.savePlan(recordTouch(plan, files, directory))
+      })
     })
   },
 })

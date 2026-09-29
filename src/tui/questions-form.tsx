@@ -1,3 +1,4 @@
+/** @jsxImportSource @opentui/solid */
 import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
 import { TextAttributes } from "@opentui/core"

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Fix the TUI panel not loading when installed from npm: the JSX runtime is now declared per file instead of relying on the unshipped tsconfig.
+- Expose the plan tools directly instead of through Code Mode, so calls render cleanly and per-agent tool hiding applies.
+
 ## 0.1.1
 
 - First release published from CI through npm trusted publishing, with provenance.

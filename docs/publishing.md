@@ -1,6 +1,6 @@
 # Publishing to npm
 
-The npm organization `smykla-skalski` owns `@smykla-skalski/opencode-plugin-plan-review`. Version `0.1.0` was published with an npm account, because npm attaches a trusted publisher only to a package that already exists. Later versions use the GitHub Actions trusted publisher connected to `smykla-skalski/opencode-plugin-plan-review`, `publish.yml`, and the `npm` environment with direct publish permission. The workflow follows the [organization catalog](https://github.com/smykla-skalski/.github/tree/main/sync).
+The npm organization `smykla-skalski` owns `@smykla-skalski/opencode-plugin-plan-review`. Version `0.1.0` was published with an npm account, because npm attaches a trusted publisher only to a package that already exists. Later versions use the GitHub Actions trusted publisher connected to `smykla-skalski/opencode-plugin-plan-review`, `publish.yml`, and the `npm` environment with direct publish permission. Shared workflows and mise tasks follow the [organization catalog](https://github.com/smykla-skalski/.github/tree/main/sync).
 
 ## Release
 

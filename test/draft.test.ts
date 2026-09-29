@@ -9,7 +9,16 @@ const multi: Question = { ...single, kind: "multi" }
 
 describe("draft", () => {
   it("lets a pending verdict or edit override the stored status", () => {
-    const step = { id: "s1", title: "t", detail: "d", files: [], risk: "low" as const, status: "proposed" as const }
+    const step = {
+      id: "s1",
+      title: "t",
+      detail: "d",
+      files: [],
+      risk: "low" as const,
+      status: "proposed" as const,
+      origin: "plan" as const,
+      touched: [],
+    }
     assert.equal(effectiveStatus(step, undefined), "proposed")
     assert.equal(effectiveStatus(step, { verdict: "reject" }), "rejected")
     assert.equal(effectiveStatus(step, { edit: { detail: "x" } }), "approved")

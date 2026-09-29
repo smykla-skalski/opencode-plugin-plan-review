@@ -1,13 +1,29 @@
 import { Agent, Plugin } from "@opencode/plugin"
 import { covered } from "./gate.ts"
-import { approvedSteps, propose, review, updateStep } from "./plan.ts"
-import { ARCHITECT_SYSTEM, ASK_DESCRIPTION, PROPOSE_DESCRIPTION, STEP_DESCRIPTION } from "./prompt.ts"
-import { answersMessage, buildReminder, planMarkdown, reviewMessage } from "./render.ts"
+import { amend, approvedFiles, propose, recordTouch, review, updateStep } from "./plan.ts"
+import {
+  AMEND_DESCRIPTION,
+  ARCHITECT_SYSTEM,
+  AUTO_PLAN_HINT,
+  ASK_DESCRIPTION,
+  PROPOSE_DESCRIPTION,
+  STEP_DESCRIPTION,
+} from "./prompt.ts"
+import { answersMessage, buildReminder, digestMarkdown, planMarkdown, reviewMessage } from "./render.ts"
 import { PlanRpc, type ChangeReason } from "./rpc.ts"
-import { OptionsSchema, PlanInputSchema, QuestionsInputSchema, StepUpdateSchema } from "./schema.ts"
+import {
+  AmendSchema,
+  OptionsSchema,
+  PlanInputSchema,
+  QuestionsInputSchema,
+  StepUpdateSchema,
+  type Plan,
+} from "./schema.ts"
 import { createStore } from "./store.ts"
 
-const TOOL = { propose: "plan_propose", ask: "plan_ask", step: "plan_step" } as const
+const TOOL = { propose: "plan_propose", ask: "plan_ask", step: "plan_step", amend: "plan_amend" } as const
+const EXECUTION_TOOLS = [TOOL.step, TOOL.amend] as const
+const PAUSED = "The plan is paused for the user's review. End your turn now."
 
 export default Plugin.define({
   id: "smykla.plan-review",
@@ -15,6 +31,7 @@ export default Plugin.define({
     const options = OptionsSchema.parse(ctx.options ?? {})
     const store = createStore(ctx.storage)
     const directory = ctx.location.directory
+    const planners = new Set([options.agent, options.buildAgent])
 
     const registration = await ctx.rpc.register(PlanRpc, {
       async get({ sessionID }) {
@@ -46,6 +63,11 @@ export default Plugin.define({
     const changed = (sessionID: string, reason: ChangeReason, version?: number) =>
       registration.events.emit("changed", { sessionID, reason, version })
 
+    const saveAndAnnounce = async (plan: Plan, reason: ChangeReason) => {
+      await store.savePlan(plan)
+      await changed(plan.sessionID, reason, plan.version)
+    }
+
     await ctx.agent.transform((editor) => {
       editor.update(options.agent, (agent) => {
         agent.name = Agent.Name.make("Architect")
@@ -65,11 +87,10 @@ export default Plugin.define({
         description: PROPOSE_DESCRIPTION,
         input: PlanInputSchema,
         async execute(input, context) {
-          if (context.agent !== options.agent) return { content: `Only the ${options.agent} agent proposes plans.` }
+          if (!planners.has(context.agent)) return { content: `Only ${[...planners].join(" or ")} can propose plans.` }
           const next = propose(await store.plan(context.sessionID), input, context.sessionID, Date.now())
           if (!next.ok) return { content: `Plan rejected: ${next.error}` }
-          await store.savePlan(next.value)
-          await changed(context.sessionID, "proposed", next.value.version)
+          await saveAndAnnounce(next.value, "proposed")
           return {
             content: `${planMarkdown(next.value)}\n\nPlan v${next.value.version} is in the user's review panel. End your turn now.`,
             metadata: { version: next.value.version, steps: next.value.steps.length },
@@ -95,41 +116,68 @@ export default Plugin.define({
         async execute(input, context) {
           const plan = await store.plan(context.sessionID)
           if (!plan) return { content: "There is no plan in this session." }
-          const next = updateStep(plan, input)
+          const next = updateStep(plan, input, options.checkpoint)
           if (!next.ok) return { content: next.error }
-          await store.savePlan(next.value)
-          await changed(context.sessionID, "step", next.value.version)
-          return { content: `${input.stepID} → ${input.status}`, metadata: { step: input.stepID, status: input.status } }
+          const { state } = next.value
+          await saveAndAnnounce(next.value, state === "done" ? "done" : state === "review" ? "checkpoint" : "step")
+          const metadata = { step: input.stepID, status: input.status }
+          if (state === "done")
+            return { content: `All approved steps are finished.\n\n${digestMarkdown(next.value, directory)}`, metadata }
+          if (state === "review") return { content: `${input.stepID} → ${input.status}. Checkpoint: ${PAUSED}`, metadata }
+          return { content: `${input.stepID} → ${input.status}`, metadata }
+        },
+      })
+      editor.add({
+        name: TOOL.amend,
+        description: AMEND_DESCRIPTION,
+        input: AmendSchema,
+        async execute(input, context) {
+          const plan = await store.plan(context.sessionID)
+          if (!plan) return { content: "There is no plan in this session; use plan_propose." }
+          const next = amend(plan, input, directory)
+          if (!next.ok) return { content: next.error }
+          await saveAndAnnounce(next.value.plan, next.value.paused ? "amended" : "step")
+          const ids = input.steps.map((step) => step.id).join(", ")
+          return {
+            content: next.value.paused
+              ? `Added ${ids}; some need the user's approval. ${PAUSED}`
+              : `Added ${ids}, approved automatically because they stay within approved files. Continue.`,
+            metadata: { paused: next.value.paused, steps: input.steps.length },
+          }
         },
       })
     })
 
     await ctx.session.hook("context", async (event) => {
-      if (event.agent === options.agent) {
-        delete event.tools.question
-        delete event.tools[TOOL.step]
+      if (!planners.has(event.agent)) {
+        for (const tool of Object.values(TOOL)) delete event.tools[tool]
         return
       }
-      delete event.tools[TOOL.propose]
-      delete event.tools[TOOL.ask]
+      delete event.tools.question
+      if (event.agent === options.agent) {
+        for (const tool of EXECUTION_TOOLS) delete event.tools[tool]
+        return
+      }
       const plan = await store.plan(event.sessionID)
       if (plan?.state !== "executing") {
-        delete event.tools[TOOL.step]
+        for (const tool of EXECUTION_TOOLS) delete event.tools[tool]
+        if (options.autoPlan && plan?.state !== "review") event.system.push({ type: "text", text: AUTO_PLAN_HINT })
         return
       }
-      if (event.agent === options.buildAgent) event.system.push({ type: "text", text: buildReminder(plan) })
+      event.system.push({ type: "text", text: buildReminder(plan) })
     })
 
     await ctx.permission.hook("evaluate", async (event) => {
-      if (options.gate === "off" || event.action !== "edit" || event.effect === "deny") return
-      if (event.agent !== options.buildAgent) return
+      if (event.action !== "edit" || event.agent !== options.buildAgent) return
       const plan = await store.plan(event.sessionID)
       if (plan?.state !== "executing") return
-      const files = approvedSteps(plan).flatMap((step) => step.files)
+      await store.savePlan(recordTouch(plan, event.resources, directory))
+      if (options.gate === "off" || event.effect === "deny") return
+      const files = approvedFiles(plan)
       const outside = event.resources.filter((resource) => !covered(resource, files, directory))
       if (!outside.length) return
       event.effect = options.gate
-      event.message = `Not covered by approved plan v${plan.version}: ${outside.join(", ")}`
+      event.message = `Not covered by approved plan v${plan.version}: ${outside.join(", ")}. Consider plan_amend.`
     })
   },
 })

@@ -4,7 +4,7 @@ import { AnswersSchema, PlanSchema, QuestionsSchema, ReviewSchema } from "./sche
 
 const OutcomeSchema = z.object({ ok: z.boolean(), error: z.string().optional() })
 
-export const ChangeReasonSchema = z.enum(["proposed", "reviewed", "step", "questions", "answered"])
+export const ChangeReasonSchema = z.enum(["proposed", "reviewed", "step", "questions", "answered", "amended", "checkpoint", "done"])
 export type ChangeReason = z.infer<typeof ChangeReasonSchema>
 
 /** Shared by the server and TUI entries; the TUI reaches it through client.rpc(PlanRpc). */

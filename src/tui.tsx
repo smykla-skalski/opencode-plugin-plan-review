@@ -1,9 +1,19 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { createEffect, Match, Show, Switch } from "solid-js"
 import { tallyLine } from "./render.ts"
-import { createState, PANEL } from "./tui/api.ts"
+import type { ChangeReason } from "./rpc.ts"
+import { createState, PANEL, type View } from "./tui/api.ts"
 import { PlanPanel } from "./tui/plan-panel.tsx"
 import { QuestionsForm } from "./tui/questions-form.tsx"
+
+const notice = (reason: ChangeReason, view: View) => {
+  if (reason === "questions") return `${view.questions?.questions.length ?? 0} question(s) need your answer`
+  if (reason === "proposed") return `Plan v${view.plan?.version} ready for review`
+  if (reason === "amended") return "The agent found more work that needs your approval"
+  if (reason === "checkpoint") return "Checkpoint: check the results before the next step"
+  if (reason === "done") return "Plan finished: see what changed"
+  return null
+}
 
 export default Plugin.define({
   id: "smykla.plan-review",
@@ -20,11 +30,8 @@ export default Plugin.define({
     const unsubscribe = state.api.events.on("changed", async (event) => {
       const { sessionID, reason } = event.data
       const view = await state.refresh(sessionID)
-      if (reason !== "proposed" && reason !== "questions") return
-      const message =
-        reason === "questions"
-          ? `${view.questions?.questions.length ?? 0} question(s) need your answer`
-          : `Plan v${view.plan?.version} ready for review`
+      const message = notice(reason, view)
+      if (!message) return
       if (!open(sessionID)) ctx.ui.toast.show({ message, variant: "info", sessionID })
       void ctx.attention.notify({ title: "Plan review", message, sound: { name: "question" } })
     })

@@ -19,8 +19,11 @@ export interface AnswerDraft {
 
 const VERDICT_STATUS: Record<Verdict, Step["status"]> = { approve: "approved", reject: "rejected", revise: "revise" }
 
-/** Status shown in the panel: the pending draft verdict wins over the stored one. */
+export const isFinished = (step: Step) => step.status === "done" || step.status === "skipped"
+
+/** Status shown in the panel: the pending draft verdict wins over the stored one, except on finished steps. */
 export function effectiveStatus(step: Step, draft: StepDraft | undefined): Step["status"] {
+  if (isFinished(step)) return step.status
   if (draft?.verdict) return VERDICT_STATUS[draft.verdict]
   if (draft?.edit) return "approved"
   return step.status

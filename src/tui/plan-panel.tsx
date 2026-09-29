@@ -1,11 +1,12 @@
 import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
 import { SyntaxStyle, TextAttributes } from "@opentui/core"
-import { createMemo, createSignal, For, Show } from "solid-js"
-import type { Plan, Risk, Step, Verdict } from "../schema.ts"
-import { STATUS_ICON } from "../render.ts"
-import { effectiveStatus, freshDraft, toReview, type PlanDraft, type StepDraft } from "./draft.ts"
+import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import { attention, drift } from "../plan.ts"
+import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
+import type { Plan, ReviewReason, Risk, Step, Verdict } from "../schema.ts"
 import type { State } from "./api.ts"
+import { effectiveStatus, freshDraft, isFinished, toReview, type PlanDraft, type StepDraft } from "./draft.ts"
 
 type Ctx = Plugin.Context
 
@@ -13,6 +14,12 @@ const RISK_FEEDBACK: Record<Risk, "success" | "warning" | "error"> = {
   low: "success",
   medium: "warning",
   high: "error",
+}
+
+const BANNER: Record<ReviewReason, string> = {
+  plan: "Review the plan",
+  amendment: "⚑ The agent found more work: approve the new steps to continue",
+  checkpoint: "⏸ Checkpoint: check the results before the next step",
 }
 
 const syntax = SyntaxStyle.create()
@@ -25,13 +32,21 @@ function alternativesTable(plan: Plan) {
   return ["| Option | Pros | Cons |", "| --- | --- | --- |", ...rows].join("\n")
 }
 
-function stepMarkdown(step: Step, draft: StepDraft | undefined) {
-  const detail = draft?.edit?.detail ?? step.detail
-  const parts = [detail.trim()]
+function stepMarkdown(step: Step, draft: StepDraft | undefined, directory: string) {
+  const parts: string[] = []
+  if (step.needsYou) parts.push(`**⚑ Decide:** ${step.needsYou}`)
+  parts.push((draft?.edit?.detail ?? step.detail).trim())
   if (step.rationale) parts.push(`**Why:** ${step.rationale.trim()}`)
   if (step.files.length) parts.push(`**Files:** ${step.files.map((file) => `\`${file}\``).join(", ")}`)
   if (step.dependsOn?.length) parts.push(`**After:** ${step.dependsOn.join(", ")}`)
   if (step.diagram) parts.push(["```mermaid", step.diagram.trim(), "```"].join("\n"))
+  if (step.check) {
+    const command = step.check.command ? ` (\`${step.check.command}\`)` : ""
+    parts.push(`**Check:** ${CHECK_ICON[step.check.outcome]} ${step.check.summary}${command}`)
+  }
+  if (step.touched.length) parts.push(`**Touched:** ${step.touched.map((file) => `\`${file}\``).join(", ")}`)
+  const off = drift(step, directory)
+  if (off.length) parts.push(`**⚠ Outside this step's files:** ${off.join(", ")}`)
   const comment = draft?.comment ?? step.comment
   if (comment) parts.push(`> 💬 ${comment.trim().replaceAll("\n", "\n> ")}`)
   if (step.note) parts.push(`_Note:_ ${step.note}`)
@@ -40,16 +55,27 @@ function stepMarkdown(step: Step, draft: StepDraft | undefined) {
 
 export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; plan: Plan }) {
   const theme = props.ctx.theme
+  const directory = props.ctx.location?.directory ?? ""
   const sessionID = () => props.plan.sessionID
   const [selected, setSelected] = createSignal(0)
   const [showSummary, setShowSummary] = createSignal(true)
+  const [showAll, setShowAll] = createSignal(false)
 
   const draft = createMemo((): PlanDraft => {
     const stored = props.state.drafts.plans[sessionID()]
     return stored?.version === props.plan.version ? stored : freshDraft(props.plan)
   })
-  const step = createMemo(() => props.plan.steps[Math.min(selected(), props.plan.steps.length - 1)])
   const reviewing = () => props.plan.state === "review"
+
+  const flagged = (item: Step) =>
+    attention(item) || Boolean(draft().steps[item.id]) || item.status === "in_progress"
+  const visible = createMemo(() => {
+    if (showAll()) return props.plan.steps
+    const shown = props.plan.steps.filter(flagged)
+    return shown.length ? shown : props.plan.steps
+  })
+  const folded = createMemo(() => props.plan.steps.length - visible().length)
+  const step = createMemo(() => visible()[Math.min(selected(), visible().length - 1)])
 
   const mutate = (id: string, change: (step: StepDraft) => void) =>
     props.state.setDrafts((state) => {
@@ -63,18 +89,20 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
 
   const verdict = (value: Verdict) => {
     const current = step()
-    if (!current || !reviewing()) return
+    if (!current || !reviewing() || isFinished(current)) return
     void mutate(current.id, (entry) => {
       entry.verdict = entry.verdict === value ? undefined : value
     })
   }
 
   const approveAll = () =>
-    props.plan.steps.forEach((item) => {
-      void mutate(item.id, (entry) => {
-        entry.verdict = entry.verdict ?? "approve"
+    props.plan.steps
+      .filter((item) => item.status === "proposed" && !draft().steps[item.id]?.verdict)
+      .forEach((item) => {
+        void mutate(item.id, (entry) => {
+          entry.verdict = "approve"
+        })
       })
-    })
 
   const comment = async () => {
     const current = step()
@@ -91,7 +119,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
 
   const edit = async () => {
     const current = step()
-    if (!current || !reviewing()) return
+    if (!current || !reviewing() || isFinished(current)) return
     const value = await props.ctx.ui.dialog.prompt({
       title: `Edit ${current.id}. ${current.title}`,
       description: "Rewrite what this step should do. An edited step counts as approved.",
@@ -116,11 +144,12 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   const submit = async (action: "revise" | "execute") => {
     if (!reviewing()) return
     if (action === "execute") {
-      const approved = props.plan.steps.filter((item) => effectiveStatus(item, draft().steps[item.id]) === "approved")
+      const pending = props.plan.steps.filter((item) => effectiveStatus(item, draft().steps[item.id]) === "approved")
+      const resuming = props.plan.reviewReason !== "plan"
       const confirmed = await props.ctx.ui.dialog.confirm({
-        title: "Execute approved steps?",
-        message: `${approved.length} of ${props.plan.steps.length} steps run on the build agent. The rest are skipped.`,
-        label: { confirm: "Execute" },
+        title: resuming ? "Continue execution?" : "Execute approved steps?",
+        message: `${pending.length} approved step(s) left to run on the build agent. Steps not approved are skipped.`,
+        label: { confirm: resuming ? "Continue" : "Execute" },
       })
       if (!confirmed) return
     }
@@ -133,15 +162,14 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       delete state.plans[sessionID()]
     })
     props.ctx.ui.toast.show({
-      message: action === "execute" ? "Executing approved steps" : "Review sent; the agent is revising",
+      message: action === "execute" ? "Executing approved steps" : "Review sent; the agent is adjusting",
       variant: "success",
     })
     await props.state.refresh(sessionID())
     if (action === "revise") props.panel.close()
   }
 
-  const move = (delta: number) =>
-    setSelected((index) => Math.max(0, Math.min(props.plan.steps.length - 1, index + delta)))
+  const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible().length - 1, index + delta)))
 
   props.ctx.keymap.layer(() => ({
     enabled: () => props.panel.focused,
@@ -157,7 +185,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "e", title: "Edit step", group: "Plan", run: edit },
       { bind: "n", title: "General feedback", group: "Plan", run: note },
       { bind: "s", title: "Send review (revise)", group: "Plan", run: () => submit("revise") },
-      { bind: "x", title: "Execute approved steps", group: "Plan", run: () => submit("execute") },
+      { bind: "x", title: "Execute / continue", group: "Plan", run: () => submit("execute") },
+      { bind: ".", title: "Show or fold routine steps", group: "Plan", run: () => setShowAll((value) => !value) },
+      { bind: "d", title: "Open diff viewer", group: "Plan", run: () => props.ctx.keymap.dispatch("diff.open") },
       { bind: "o", title: "Toggle summary", group: "Plan", run: () => setShowSummary((value) => !value) },
       { bind: "f", title: "Toggle fullscreen", group: "Plan", run: () => props.panel.toggleFullscreen() },
       { bind: "q,escape", title: "Close plan", group: "Plan", run: () => props.panel.close() },
@@ -165,11 +195,12 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   }))
 
   const counts = createMemo(() => {
-    const result = { approved: 0, rejected: 0, revise: 0, other: 0, comments: 0 }
+    const result = { approved: 0, rejected: 0, revise: 0, done: 0, other: 0, comments: 0 }
     for (const item of props.plan.steps) {
       const entry = draft().steps[item.id]
       const status = effectiveStatus(item, entry)
-      if (status === "approved" || status === "rejected" || status === "revise") result[status] += 1
+      if (status === "approved" || status === "rejected" || status === "revise" || status === "done")
+        result[status] += 1
       else result.other += 1
       if (entry?.comment) result.comments += 1
     }
@@ -184,6 +215,13 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
     return theme.text.muted
   }
 
+  const checkColor = (outcome: "pass" | "fail" | "none") =>
+    outcome === "pass"
+      ? theme.text.feedback.success.base
+      : outcome === "fail"
+        ? theme.text.feedback.error.base
+        : theme.text.muted
+
   return (
     <box flexDirection="column" flexGrow={1} paddingLeft={1} paddingRight={1} gap={1}>
       <box flexDirection="row" gap={2} flexShrink={0}>
@@ -195,108 +233,149 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
         </text>
       </box>
 
-      <Show when={showSummary()}>
-        <box flexShrink={0}>
-          <markdown
-            content={props.plan.summary}
-            syntaxStyle={syntax}
-            conceal
-            fg={theme.markdown.text}
-            tableOptions={{ style: "grid", cellPaddingX: 1 }}
-          />
-          <Show when={props.plan.diagram}>
-            {(diagram) => (
-              <markdown
-                content={["```mermaid", diagram().trim(), "```"].join("\n")}
-                syntaxStyle={syntax}
-                fg={theme.markdown.text}
-              />
-            )}
-          </Show>
-          <Show when={alternativesTable(props.plan)}>
-            {(table) => (
-              <markdown
-                content={table()}
-                syntaxStyle={syntax}
-                fg={theme.markdown.text}
-                tableOptions={{ style: "grid", cellPaddingX: 1 }}
-              />
-            )}
-          </Show>
-        </box>
+      <Show when={reviewing()}>
+        <text
+          flexShrink={0}
+          fg={props.plan.reviewReason === "plan" ? theme.text.muted : theme.text.feedback.warning.base}
+        >
+          {BANNER[props.plan.reviewReason]}
+        </text>
       </Show>
 
-      <box flexDirection="row" gap={1} flexShrink={0}>
-        <text fg={theme.text.muted} flexGrow={1}>
-          Steps
-        </text>
-        <text>
-          <span style={{ fg: theme.text.feedback.success.base }}>{counts().approved}✓ </span>
-          <span style={{ fg: theme.text.feedback.error.base }}>{counts().rejected}✗ </span>
-          <span style={{ fg: theme.text.feedback.warning.base }}>{counts().revise}✎ </span>
-          <span style={{ fg: theme.text.muted }}>
-            {counts().other}· {counts().comments}💬
-          </span>
-        </text>
-      </box>
-
-      <box flexDirection="column" flexShrink={0}>
-        <For each={props.plan.steps}>
-          {(item, index) => {
-            const entry = () => draft().steps[item.id]
-            const status = () => effectiveStatus(item, entry())
-            const active = () => index() === selected()
-            return (
-              <box
-                flexDirection="row"
-                gap={1}
-                backgroundColor={active() ? theme.background.raised.high : undefined}
-                onMouseUp={() => setSelected(index())}
-              >
-                <text fg={theme.text.base} flexShrink={0}>
-                  {active() ? "›" : " "}
-                </text>
-                <text fg={statusColor(status())} flexShrink={0}>
-                  {STATUS_ICON[status()]}
-                </text>
-                <text fg={theme.text.base} flexGrow={1} truncate wrapMode="none">
-                  {item.id}. {entry()?.edit?.title ?? item.title}
-                </text>
-                <text fg={theme.text.feedback[RISK_FEEDBACK[item.risk]].base} flexShrink={0}>
-                  [{item.risk.toUpperCase()}]
-                </text>
-                <text fg={theme.text.muted} flexShrink={0}>
-                  {item.files.length}f{entry()?.comment || item.comment ? " 💬" : ""}
-                  {entry()?.edit ? " ✎" : ""}
-                </text>
-              </box>
-            )
-          }}
-        </For>
-      </box>
-
-      <Show when={step()}>
-        {(current) => (
+      <Switch>
+        <Match when={props.plan.state === "done"}>
           <scrollbox flexGrow={1} scrollbarOptions={{ visible: false }}>
-            <box paddingTop={1}>
-              <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
-                {current().id}. {draft().steps[current().id]?.edit?.title ?? current().title}
-              </text>
-              <markdown
-                content={stepMarkdown(current(), draft().steps[current().id])}
-                syntaxStyle={syntax}
-                conceal
-                fg={theme.markdown.text}
-              />
-            </box>
+            <markdown
+              content={digestMarkdown(props.plan, directory)}
+              syntaxStyle={syntax}
+              conceal
+              fg={theme.markdown.text}
+            />
           </scrollbox>
-        )}
-      </Show>
+        </Match>
+        <Match when={props.plan.state !== "done"}>
+          <Show when={showSummary() && props.plan.reviewReason === "plan"}>
+            <box flexShrink={0}>
+              <markdown content={props.plan.summary} syntaxStyle={syntax} conceal fg={theme.markdown.text} />
+              <Show when={props.plan.diagram}>
+                {(diagram) => (
+                  <markdown
+                    content={["```mermaid", diagram().trim(), "```"].join("\n")}
+                    syntaxStyle={syntax}
+                    fg={theme.markdown.text}
+                  />
+                )}
+              </Show>
+              <Show when={alternativesTable(props.plan)}>
+                {(table) => (
+                  <markdown
+                    content={table()}
+                    syntaxStyle={syntax}
+                    fg={theme.markdown.text}
+                    tableOptions={{ style: "grid", cellPaddingX: 1 }}
+                  />
+                )}
+              </Show>
+            </box>
+          </Show>
+
+          <box flexDirection="row" gap={1} flexShrink={0}>
+            <text fg={theme.text.muted} flexGrow={1}>
+              Steps
+            </text>
+            <text>
+              <span style={{ fg: theme.text.feedback.success.base }}>{counts().approved}✓ </span>
+              <span style={{ fg: theme.text.feedback.error.base }}>{counts().rejected}✗ </span>
+              <span style={{ fg: theme.text.feedback.warning.base }}>{counts().revise}✎ </span>
+              <span style={{ fg: theme.text.feedback.success.base }}>{counts().done}● </span>
+              <span style={{ fg: theme.text.muted }}>
+                {counts().other}· {counts().comments}💬
+              </span>
+            </text>
+          </box>
+
+          <box flexDirection="column" flexShrink={0}>
+            <For each={visible()}>
+              {(item, index) => {
+                const entry = () => draft().steps[item.id]
+                const status = () => effectiveStatus(item, entry())
+                const active = () => index() === selected()
+                const off = () => drift(item, directory).length > 0
+                return (
+                  <box
+                    flexDirection="row"
+                    gap={1}
+                    backgroundColor={active() ? theme.background.raised.high : undefined}
+                    onMouseUp={() => setSelected(index())}
+                  >
+                    <text fg={theme.text.base} flexShrink={0}>
+                      {active() ? "›" : " "}
+                    </text>
+                    <text fg={statusColor(status())} flexShrink={0}>
+                      {STATUS_ICON[status()]}
+                    </text>
+                    <text fg={theme.text.feedback.warning.base} flexShrink={0}>
+                      {item.needsYou ? "⚑" : item.origin === "amendment" ? "+" : " "}
+                    </text>
+                    <text fg={theme.text.base} flexGrow={1} truncate wrapMode="none">
+                      {item.id}. {entry()?.edit?.title ?? item.title}
+                    </text>
+                    <Show when={item.check}>
+                      {(check) => (
+                        <text fg={checkColor(check().outcome)} flexShrink={0}>
+                          {CHECK_ICON[check().outcome]}
+                        </text>
+                      )}
+                    </Show>
+                    <Show when={off()}>
+                      <text fg={theme.text.feedback.warning.base} flexShrink={0}>
+                        ⚠
+                      </text>
+                    </Show>
+                    <text fg={theme.text.feedback[RISK_FEEDBACK[item.risk]].base} flexShrink={0}>
+                      [{item.risk.toUpperCase()}]
+                    </text>
+                    <text fg={theme.text.muted} flexShrink={0}>
+                      {item.touched.length ? `${item.touched.length}✎f` : `${item.files.length}f`}
+                      {entry()?.comment || item.comment ? " 💬" : ""}
+                    </text>
+                  </box>
+                )
+              }}
+            </For>
+            <Show when={folded() > 0}>
+              <text fg={theme.text.muted} onMouseUp={() => setShowAll(true)}>
+                {"  "}+ {folded()} routine step(s) folded · . to show
+              </text>
+            </Show>
+          </box>
+
+          <Show when={step()}>
+            {(current) => (
+              <scrollbox flexGrow={1} scrollbarOptions={{ visible: false }}>
+                <box paddingTop={1}>
+                  <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
+                    {current().id}. {draft().steps[current().id]?.edit?.title ?? current().title}
+                  </text>
+                  <markdown
+                    content={stepMarkdown(current(), draft().steps[current().id], directory)}
+                    syntaxStyle={syntax}
+                    conceal
+                    fg={theme.markdown.text}
+                  />
+                </box>
+              </scrollbox>
+            )}
+          </Show>
+        </Match>
+      </Switch>
 
       <text fg={theme.text.muted} flexShrink={0}>
-        {reviewing()
-          ? "j/k move · a approve · r reject · v revise · e edit · c comment · A approve all · n note · s send · x execute · q close"
-          : "j/k move · c comment · f fullscreen · q close"}
+        {props.plan.state === "done"
+          ? "d diff · f fullscreen · q close"
+          : reviewing()
+            ? "j/k · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
+            : "j/k · c comment · . fold · d diff · f fullscreen · q close"}
       </text>
     </box>
   )

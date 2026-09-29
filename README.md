@@ -1,10 +1,14 @@
 # opencode-plugin-plan-review
 
-An [opencode](https://github.com/anomalyco/opencode) v2 plugin that turns the plan stage into a structured plan you review step by step in the terminal, instead of a wall of markdown in the chat.
+An [opencode](https://github.com/anomalyco/opencode) v2 plugin that replaces a wall-of-markdown plan with a short, structured one you review in the terminal, and keeps you in the loop while it runs, without a mode to switch into.
 
-- The **architect** agent researches the code, asks all its clarifying questions at once in a single form, and submits a plan made of steps with ids, detail, rationale, files, risk, dependencies, optional mermaid diagrams and a table of the alternatives it considered.
-- A **review panel** opens next to the session. You approve, reject, ask to revise, edit or comment on each step, add general feedback, then either send the review back (the agent revises, and approved steps stay approved) or execute.
-- **Execute** switches to the build agent with only the approved steps. The build agent reports progress per step, and an edit to a file no approved step lists asks you first.
+- **No mode switch.** The build agent decides for itself when a task needs a plan: small changes just run; multi-file, ambiguous or hard-to-undo work gets clarifying questions and a plan first. The **architect** agent is there for when you want a plan up front.
+- **Short plans.** Steps that need a human decision carry a one-line `⚑` saying what to decide. Routine steps fold into a single line, so you read the decisions, not the whole plan.
+- **Questions as one form.** Every clarifying question arrives at once, with options and the agent's recommendation.
+- **Per-step review.** Approve, reject, ask to revise, edit or comment on each step, then send the review back or execute.
+- **Planning keeps going during execution.** When the agent finds work the plan missed, it amends the plan: routine additions inside the approved files run on, anything risky or new pauses for you.
+- **Inspect as it runs.** Each finished step records how it was verified and which files it touched; a high-risk step or a failed check pauses at a checkpoint so you look before the next step.
+- **What changed.** When the plan finishes, a digest lists the steps riskiest first with their checks, the files they touched, and any drift from the plan; `d` opens the diff.
 
 Status: draft. It targets the opencode v2 plugin API, which is still pre-stable.
 
@@ -23,10 +27,11 @@ For local development, point `plugins` at a checkout: `"plugins": ["/path/to/ope
 
 ## Use
 
-1. Switch to the **Architect** agent and describe the change.
-2. If it needs answers, the panel shows every question as one form. Answer and press `ctrl+s`.
-3. When the plan arrives, the panel opens. Review it with the keys below.
+1. Describe the change to the build agent as usual, or switch to the **Architect** agent to plan first.
+2. If the agent needs answers, the panel shows every question as one form. Answer and press `ctrl+s`.
+3. When a plan arrives, the panel opens with the steps that need you; `.` shows the folded routine ones. Review with the keys below.
 4. Press `s` to send the review for another round, or `x` to execute the approved steps.
+5. The panel reopens on its own when an amendment needs approval, at a checkpoint (`x` continues, `s` asks for changes), and when the plan finishes with the "what changed" digest.
 
 `/plan` or `<leader>p` reopens the panel. The line above the prompt shows the plan version and a tally, and the sidebar shows an outline.
 
@@ -38,7 +43,9 @@ For local development, point `plugins` at a checkout: `"plugins": ["/path/to/ope
 | `c` | comment on the step | |
 | `A` | approve every undecided step | |
 | `n` | general feedback | |
-| `s` / `x` | send review (revise) / execute approved steps | |
+| `s` / `x` | send review (revise) / execute or continue | |
+| `.` | show or fold routine steps | |
+| `d` | open the diff viewer | |
 | `tab` / `shift+tab` | | next / previous question |
 | `space`, `enter` | | select option, type a text answer |
 | `ctrl+s` | | send answers |
@@ -56,7 +63,9 @@ Review drafts are saved on disk, so a half-finished review survives a restart.
       "options": {
         "agent": "architect",
         "buildAgent": "build",
-        "gate": "ask"
+        "gate": "ask",
+        "checkpoint": "risky",
+        "autoPlan": true
       }
     }
   ]
@@ -68,19 +77,26 @@ Review drafts are saved on disk, so a half-finished review survives a restart.
 | `agent` | `architect` | Id of the planning agent the plugin defines. |
 | `buildAgent` | `build` | Agent that executes approved steps. |
 | `gate` | `ask` | What happens when the build agent edits a file no approved step lists: `ask`, `deny`, or `off`. |
+| `checkpoint` | `risky` | When execution pauses for you after a step: `risky` (high-risk step, failed check, or blocked), `every` step, or `off`. |
+| `autoPlan` | `true` | Tell the build agent to decide on its own when a task needs questions and a plan. |
 
 ## How it works
 
 ```text
-architect ──plan_ask──────► questions stored ──► form in panel ──ctrl+s──► <plan-answers> wakes the agent
-architect ──plan_propose──► plan vN stored ────► review panel ──s──► <plan-review action=revise> ──► plan vN+1
-                                                              └──x──► switch to build + <plan-review action=execute>
-build ──plan_step──► per-step progress; context hook re-sends the approved steps every request; edit gate asks outside them
+build or architect ──plan_ask──────► form in panel ──ctrl+s──► <plan-answers> wakes the agent
+build or architect ──plan_propose──► review panel ──s──► <plan-review action=revise> ──► plan vN+1
+                                                   └──x──► build agent runs the approved steps
+build ──plan_step in_progress → edit → verify → plan_step done + check──► next step
+      │                                                   └─ high risk / failed check ──► checkpoint ──x──► continue
+      └─plan_amend──► routine & inside approved files ──► runs on
+                      └─ risky, ⚑ or new files ──► paused for review ──x──► continue
+last step done ──► "what changed" digest: checks, touched files, drift, riskiest first
 ```
 
 - The tools return immediately and the agent ends its turn, so nothing waits in memory: plans, questions and drafts live in plugin storage and survive restarts.
 - The review reaches the model as a synthetic message; the timeline shows a one-line notice such as `Plan review v2: 5✓ 1✗ 2✎ → revise`.
-- The architect does not get opencode's one-question-at-a-time `question` tool, and only the architect gets `plan_propose` and `plan_ask`.
+- Planning agents do not get opencode's one-question-at-a-time `question` tool; `plan_ask` replaces it. `plan_step` and `plan_amend` exist only while a plan executes.
+- Touched files come from the edit permission check: each edit is attributed to the step in progress, and an edit outside that step's files shows as drift.
 
 ## Known gaps
 

@@ -31,6 +31,13 @@ export const StepInputSchema = z.object({
   risk: RiskSchema.default("low"),
   dependsOn: z.array(z.string()).optional().describe("Ids of steps that must run first."),
   diagram: z.string().max(4000).optional().describe("Optional mermaid source illustrating this step."),
+  needsYou: z
+    .string()
+    .max(300)
+    .optional()
+    .describe(
+      "Only when this step needs a human decision: one line saying what to decide. Routine steps omit it and are folded away in the review.",
+    ),
 })
 export type StepInput = z.infer<typeof StepInputSchema>
 
@@ -51,21 +58,36 @@ export const PlanInputSchema = z.object({
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
 
+export const CheckSchema = z.object({
+  outcome: z.enum(["pass", "fail", "none"]).describe("pass/fail of the check you ran; none when nothing was verifiable."),
+  summary: z.string().max(500).describe("One line: what you verified and what it showed."),
+  command: z.string().max(300).optional().describe("The command you ran, if any."),
+})
+export type Check = z.infer<typeof CheckSchema>
+
 export const StepSchema = StepInputSchema.extend({
   status: StepStatusSchema,
   comment: z.string().optional(),
   note: z.string().optional(),
+  origin: z.enum(["plan", "amendment"]).default("plan"),
+  touched: z.array(z.string()).default([]),
+  check: CheckSchema.optional(),
 })
 export type Step = z.infer<typeof StepSchema>
 
 export const PlanStateSchema = z.enum(["review", "executing", "done"])
 export type PlanState = z.infer<typeof PlanStateSchema>
 
+export const ReviewReasonSchema = z.enum(["plan", "amendment", "checkpoint"])
+export type ReviewReason = z.infer<typeof ReviewReasonSchema>
+
 export const PlanSchema = PlanInputSchema.extend({
   sessionID: z.string(),
   version: z.number().int().positive(),
   state: PlanStateSchema,
+  reviewReason: ReviewReasonSchema.default("plan"),
   steps: z.array(StepSchema).min(1),
+  outside: z.array(z.string()).default([]),
   createdAt: z.number(),
 })
 export type Plan = z.infer<typeof PlanSchema>
@@ -142,12 +164,24 @@ export const StepUpdateSchema = z.object({
   stepID: z.string(),
   status: z.enum(["in_progress", "done", "blocked", "skipped"]),
   note: z.string().max(1000).optional(),
+  check: CheckSchema.optional().describe("Required with done: how you verified the step."),
 })
 export type StepUpdate = z.infer<typeof StepUpdateSchema>
+
+export const AmendSchema = z.object({
+  reason: z.string().min(1).max(500).describe("What you discovered that the plan did not cover."),
+  steps: z.array(StepInputSchema).min(1).max(10).describe("New steps with new ids."),
+})
+export type Amend = z.infer<typeof AmendSchema>
+
+export const CheckpointSchema = z.enum(["off", "risky", "every"])
+export type Checkpoint = z.infer<typeof CheckpointSchema>
 
 export const OptionsSchema = z.object({
   agent: z.string().default("architect"),
   buildAgent: z.string().default("build"),
   gate: z.enum(["ask", "deny", "off"]).default("ask"),
+  checkpoint: CheckpointSchema.default("risky"),
+  autoPlan: z.boolean().default(true),
 })
 export type Options = z.infer<typeof OptionsSchema>

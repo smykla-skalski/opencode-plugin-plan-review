@@ -1,16 +1,55 @@
-# Security policy
+# Security Policy
 
-## Reporting a vulnerability
+## Supported Versions
 
-Report it privately through [GitHub's private vulnerability reporting](https://github.com/smykla-skalski/opencode-plugin-plan-review/security/advisories/new). Do not open a public issue or pull request. Include the plugin version, the opencode version and the steps to reproduce.
+We release patches for security vulnerabilities for the following versions:
 
-## Supported versions
+| Version | Supported          |
+| ------- | ------------------ |
+| latest  | :white_check_mark: |
 
-The latest release. The package is pre-1.0 and has no maintained release branches.
+## Reporting a Vulnerability
 
-## What is worth reporting
+If you discover a security vulnerability, please report it by emailing the maintainers directly rather than opening a public issue.
 
-- The architect agent editing files, or running tools that change the workspace.
-- The build agent editing a file outside the approved steps without asking, while `gate` is `ask` or `deny`.
-- A plan, review or answer from one session reaching another session.
-- Plan text from the model that makes the plugin do anything other than store and display it.
+**Please do not report security vulnerabilities through public GitHub issues.**
+
+### Contact Information
+
+- **Email**: [bartek@smykla.com](mailto:bartek@smykla.com)
+- **GitHub Security Advisories**: Use the "Security" tab in the relevant repository
+
+### What to Include
+
+Please provide as much information as possible about the vulnerability:
+
+- Description of the vulnerability
+- Steps to reproduce
+- Potential impact
+- Suggested fix (if available)
+
+### Response Timeline
+
+- **Acknowledgment**: We will acknowledge receipt of your vulnerability report within 48 hours
+- **Investigation**: We will investigate and validate the reported vulnerability
+- **Fix**: We will develop and test a fix
+- **Release**: We will release a security update
+- **Disclosure**: We will publicly disclose the vulnerability after the fix is released
+
+### Coordinated Disclosure
+
+Please allow time for the vulnerability to be fixed before public disclosure.
+
+## Security Best Practices
+
+When contributing to Smykla Skalski projects:
+
+- Keep dependencies up to date
+- Never commit secrets, credentials, or API keys
+- Use environment variables for sensitive configuration
+- Follow the principle of least privilege
+- Review code changes for security implications
+
+## Acknowledgments
+
+We appreciate the security research community's efforts to responsibly disclose vulnerabilities.

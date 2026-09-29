@@ -1,6 +1,6 @@
 {
   "name": "@smykla-skalski/opencode-plugin-plan-review",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "opencode v2 plugin for reviewable planning in the terminal: short structured plans reviewed step by step, batched questions, planning inside the build loop with checkpoints, and a what-changed digest",
   "license": "MIT",
   "author": "Marcin Skalski (https://github.com/Automaat)",

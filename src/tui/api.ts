@@ -1,0 +1,44 @@
+import type { Plugin } from "@opencode/plugin/tui"
+import { PlanRpc } from "../rpc.ts"
+import type { Plan, Questions } from "../schema.ts"
+import type { AnswerDraft, PlanDraft } from "./draft.ts"
+
+export const PANEL = "plan-review"
+
+export interface View {
+  plan: Plan | null
+  questions: Questions | null
+}
+
+/** Client state shared by every slot: server views in memory, review drafts on disk so they survive restarts. */
+export function createState(ctx: Plugin.Context) {
+  const api = ctx.client.rpc(PlanRpc)
+  const options = ctx.location ? { location: ctx.location } : undefined
+  const [views, setViews] = ctx.storage.memory("views", { initial: { sessions: {} as Record<string, View> } })
+  const [drafts, setDrafts] = ctx.storage.store("drafts", {
+    initial: {
+      plans: {} as Record<string, PlanDraft>,
+      answers: {} as Record<string, AnswerDraft>,
+    },
+  })
+
+  const refresh = async (sessionID: string) => {
+    const view = await api.get({ sessionID }, options)
+    setViews((state) => {
+      state.sessions[sessionID] = view
+    })
+    return view
+  }
+
+  return {
+    api,
+    options,
+    views,
+    drafts,
+    setDrafts,
+    refresh,
+    view: (sessionID: string): View | undefined => views.sessions[sessionID],
+  }
+}
+
+export type State = ReturnType<typeof createState>

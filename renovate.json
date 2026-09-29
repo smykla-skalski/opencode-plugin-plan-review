@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigestsToSemver"],
+  "ignorePaths": ["**/node_modules/**"],
+  "automerge": true,
+  "automergeStrategy": "squash",
+  "platformAutomerge": true,
+  "lockFileMaintenance": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "The toolchain pinned in mise.toml is what CI runs, so keep it current in one PR.",
+      "matchManagers": ["mise"],
+      "groupName": "toolchain"
+    },
+    {
+      "description": "Action digests are pinned by SHA; group them so one PR covers the workflows.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "description": "The v2 plugin API is pre-stable and the TUI shares solid and opentui with the host, so these move together, are reviewed by hand, and never automerge. zod is pinned to the version @opencode/plugin uses.",
+      "matchPackageNames": ["@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js", "zod"],
+      "groupName": "opencode plugin api",
+      "automerge": false
+    }
+  ]
+}

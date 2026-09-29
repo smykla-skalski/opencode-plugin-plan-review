@@ -1,0 +1,65 @@
+{
+  "name": "@smykla-skalski/opencode-plugin-plan-review",
+  "version": "0.0.0",
+  "description": "opencode v2 plugin that turns the plan stage into a structured plan you review step by step in the terminal: approve, reject, edit or comment per step, answer batched questions, then run only the approved steps",
+  "license": "MIT",
+  "author": "Marcin Skalski (https://github.com/Automaat)",
+  "type": "module",
+  "exports": {
+    "./server": "./server.ts",
+    "./tui": "./tui.tsx",
+    "./rpc": "./rpc.ts"
+  },
+  "files": [
+    "server.ts",
+    "tui.tsx",
+    "rpc.ts",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "opencode": ">=2.0.19"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "plan-mode",
+    "tui",
+    "ai",
+    "coding-agent"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/smykla-skalski/opencode-plugin-plan-review.git"
+  },
+  "bugs": {
+    "url": "https://github.com/smykla-skalski/opencode-plugin-plan-review/issues"
+  },
+  "homepage": "https://github.com/smykla-skalski/opencode-plugin-plan-review#readme",
+  "peerDependencies": {
+    "@opencode/plugin": ">=2.0.19",
+    "@opentui/core": ">=0.5.12",
+    "@opentui/solid": ">=0.5.12",
+    "solid-js": ">=1.9.0"
+  },
+  "dependencies": {
+    "zod": "4.1.8"
+  },
+  "devDependencies": {
+    "@opencode/plugin": "2.0.19",
+    "@opentui/core": "0.5.12",
+    "@opentui/solid": "0.5.12",
+    "@types/node": "^24.13.4",
+    "solid-js": "1.9.12",
+    "typescript": "^7.0.2"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --experimental-strip-types --test --test-force-exit test/*.test.ts"
+  }
+}

@@ -25,6 +25,7 @@ const TOOL = { propose: "plan_propose", ask: "plan_ask", step: "plan_step", amen
 const EXECUTION_TOOLS = [TOOL.step, TOOL.amend] as const
 const PAUSED = "The plan is paused for the user's review. End your turn now."
 const ARCHITECT_NAME = "Architect" as Agent.Name
+const DIRECT = { codemode: false } as const
 const EDIT_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "patch"])
 
 const wrap = (result: Result<Plan>): Result<{ readonly plan: Plan }> =>
@@ -106,6 +107,7 @@ const plugin: Plugin.Plugin = {
         name: TOOL.propose,
         description: PROPOSE_DESCRIPTION,
         input: PlanInputSchema,
+        options: DIRECT,
         async execute(input, context) {
           if (!planners.has(context.agent)) return { content: `Only ${[...planners].join(" or ")} can propose plans.` }
           const next = await transition(context.sessionID, (previous) =>
@@ -124,6 +126,7 @@ const plugin: Plugin.Plugin = {
         name: TOOL.ask,
         description: ASK_DESCRIPTION,
         input: QuestionsInputSchema,
+        options: DIRECT,
         async execute(input, context) {
           const invalid = input.questions.filter((q) => q.kind !== "text" && q.kind !== "confirm" && !q.options?.length)
           if (invalid.length) return { content: `Questions ${invalid.map((q) => q.id).join(", ")} need options.` }
@@ -138,6 +141,7 @@ const plugin: Plugin.Plugin = {
         name: TOOL.step,
         description: STEP_DESCRIPTION,
         input: StepUpdateSchema,
+        options: DIRECT,
         async execute(input, context) {
           const next = await transition(context.sessionID, (plan) =>
             plan ? wrap(updateStep(plan, input, options.checkpoint)) : missing("There is no plan in this session."),
@@ -157,6 +161,7 @@ const plugin: Plugin.Plugin = {
         name: TOOL.amend,
         description: AMEND_DESCRIPTION,
         input: AmendSchema,
+        options: DIRECT,
         async execute(input, context) {
           const next = await transition(context.sessionID, (plan) =>
             plan ? amend(plan, input, directory) : missing("There is no plan in this session; use plan_propose."),

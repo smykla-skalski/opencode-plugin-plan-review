@@ -1,3 +1,4 @@
+/** @jsxImportSource @opentui/solid */
 import type { Plugin } from "@opencode/plugin/tui"
 import { createEffect, Match, Show, Switch } from "solid-js"
 import { tallyLine } from "./render.ts"

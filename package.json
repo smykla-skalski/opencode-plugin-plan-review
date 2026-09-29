@@ -49,7 +49,7 @@
     "solid-js": ">=1.9.0"
   },
   "dependencies": {
-    "zod": "4.1.8"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@opencode/plugin": "2.0.19",

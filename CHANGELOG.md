@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- First release published from CI through npm trusted publishing, with provenance.
+- Update zod to 4.6.5.
+
 ## 0.1.0
 
 - Structured plans reviewed step by step in a terminal panel: approve, reject, ask to revise, edit or comment per step, then revise or execute.

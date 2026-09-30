@@ -6,7 +6,8 @@ import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import { attention, drift } from "../plan.ts"
 import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
 import type { Plan, ReviewReason, Risk, Step, Verdict } from "../schema.ts"
-import type { State } from "./api.ts"
+import { chatHint, type State } from "./api.ts"
+import { DiagramView } from "./diagram-view.tsx"
 import { effectiveStatus, freshDraft, isFinished, toReview, type PlanDraft, type StepDraft } from "./draft.ts"
 
 type Ctx = Plugin.Context
@@ -40,7 +41,6 @@ function stepMarkdown(step: Step, draft: StepDraft | undefined, directory: strin
   if (step.rationale) parts.push(`**Why:** ${step.rationale.trim()}`)
   if (step.files.length) parts.push(`**Files:** ${step.files.map((file) => `\`${file}\``).join(", ")}`)
   if (step.dependsOn?.length) parts.push(`**After:** ${step.dependsOn.join(", ")}`)
-  if (step.diagram) parts.push(["```mermaid", step.diagram.trim(), "```"].join("\n"))
   if (step.check) {
     const command = step.check.command ? ` (\`${step.check.command}\`)` : ""
     parts.push(`**Check:** ${CHECK_ICON[step.check.outcome]} ${step.check.summary}${command}`)
@@ -265,13 +265,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
             <box flexShrink={0}>
               <markdown content={props.plan.summary} syntaxStyle={syntax} conceal fg={theme.markdown.text} />
               <Show when={props.plan.diagram}>
-                {(diagram) => (
-                  <markdown
-                    content={["```mermaid", diagram().trim(), "```"].join("\n")}
-                    syntaxStyle={syntax}
-                    fg={theme.markdown.text}
-                  />
-                )}
+                {(diagram) => <DiagramView theme={theme} source={diagram()} />}
               </Show>
               <Show when={alternativesTable(props.plan)}>
                 {(table) => (
@@ -370,6 +364,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                     conceal
                     fg={theme.markdown.text}
                   />
+                  <Show when={current().diagram}>
+                    {(diagram) => <DiagramView theme={theme} source={diagram()} />}
+                  </Show>
                 </box>
               </scrollbox>
             )}
@@ -377,6 +374,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
         </Match>
       </Switch>
 
+      <text fg={theme.text.muted} flexShrink={0}>
+        {chatHint(props.ctx)}
+      </text>
       <text fg={theme.text.muted} flexShrink={0}>
         {props.plan.state === "done"
           ? "d diff · f fullscreen · q close"

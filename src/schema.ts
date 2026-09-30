@@ -30,7 +30,7 @@ export const StepInputSchema = z.object({
     .describe("Workspace-relative paths or globs this step edits. Execution asks before touching anything else."),
   risk: RiskSchema.default("low"),
   dependsOn: z.array(z.string()).optional().describe("Ids of steps that must run first."),
-  diagram: z.string().max(4000).optional().describe("Optional mermaid source illustrating this step."),
+  diagram: z.string().max(4000).optional().describe("Optional mermaid source illustrating this step. Keep each node label on one short line."),
   needsYou: z
     .string()
     .max(300)
@@ -53,7 +53,7 @@ export const PlanInputSchema = z.object({
   title: z.string().min(1).max(120),
   summary: z.string().max(4000).describe("Goal and approach in a few sentences of markdown."),
   steps: z.array(StepInputSchema).min(1).max(40),
-  diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change."),
+  diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change (flowchart or sequenceDiagram). Keep each node label on one short line."),
   alternatives: z.array(AlternativeSchema).max(8).optional().describe("Approaches considered; mark the chosen one."),
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>

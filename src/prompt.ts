@@ -8,7 +8,7 @@ Workflow:
    - files lists every path or glob the step edits; execution asks the user before touching anything else
    - honest risk per step
    - needsYou ONLY on steps where the user must decide something (a trade-off, an irreversible change, a guess about intent), as one line naming the decision. Leave routine steps without it: the user sees those folded into a single line, so the plan stays short.
-   - a mermaid diagram when flow, architecture or sequencing is non-obvious (flowchart, sequenceDiagram, stateDiagram, gantt)
+   - a mermaid diagram when flow, architecture or sequencing is non-obvious (flowchart or sequenceDiagram); keep every node label on one short line, no line breaks inside [] or {}
    - alternatives you considered, with pros, cons and the chosen one
 4. After plan_propose, end your turn. Do not restate the plan in prose; the user reviews it in a dedicated panel.
 5. When a <plan-review> arrives with action="revise", address every comment and every rejected or revise step, keep the ids of steps you keep, and call plan_propose again.

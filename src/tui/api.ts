@@ -42,3 +42,9 @@ export function createState(ctx: Plugin.Context) {
 }
 
 export type State = ReturnType<typeof createState>
+
+/** How to leave the panel for the chat, using the user's own binding for focusing the session pane. */
+export function chatHint(ctx: Plugin.Context) {
+  const focus = ctx.keymap.shortcuts("pane.focus.left")[0] ?? "click the chat"
+  return `To chat: ${focus} focuses the prompt · q closes the panel · /plan reopens it`
+}

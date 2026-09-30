@@ -15,6 +15,7 @@ jobs:
     if: ${{ !github.event.release.prerelease }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: npm
     permissions:
       contents: read
       id-token: write
@@ -34,4 +35,9 @@ jobs:
       - run: npm install --global npm@^11.15.0
       - run: mise run install
       - run: mise run check
-      - run: npm publish --access public
+      - name: Dry run until trusted publishing is ready
+        if: vars.NPM_PUBLISH_ENABLED != 'true'
+        run: npm publish --dry-run
+      - name: Publish to npm
+        if: vars.NPM_PUBLISH_ENABLED == 'true'
+        run: npm publish --access public

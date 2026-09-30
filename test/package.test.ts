@@ -82,6 +82,25 @@ describe("tool inputs", () => {
     assert.equal(ProposeInputSchema.safeParse({ ...base, overview: ["A[cli] -.-> B[stats]"] }).success, true)
   })
 
+  it("takes optional extra diagrams of other types and rejects prose ones", async () => {
+    const { ProposeInputSchema } = await import("../src/schema.ts")
+    const base = { title: "T", summary: "S", steps: [step], overview, sequence }
+    const plan = ProposeInputSchema.parse({
+      ...base,
+      diagrams: [
+        { title: "Flush lifecycle", source: ["stateDiagram-v2", "[*] --> Open", "Open --> Closed"] },
+        { title: "Model", source: ["classDiagram", "Policy <|-- MeshAccessLog"] },
+      ],
+    })
+    assert.deepEqual(
+      plan.diagrams?.map((extra) => extra.title),
+      ["Flush lifecycle", "Model"],
+    )
+    assert.equal(ProposeInputSchema.parse(base).diagrams, undefined)
+    const prose = { ...base, diagrams: [{ title: "Notes", source: ["logs flush when connected"] }] }
+    assert.equal(ProposeInputSchema.safeParse(prose).success, false)
+  })
+
   it("repairs JSON text where a value was quoted with backticks", async () => {
     const { ProposeInputSchema, parseLooseJson } = await import("../src/schema.ts")
     const text = '[{"id": "s5", "title": "Run tests", "detail": `npm test (node --test). "quoted" too`, "files": []}]'

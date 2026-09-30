@@ -47,6 +47,8 @@ function mermaidSource(header: string) {
 
 /** A flowchart edge such as `A --> B`, `A -.-> B` or `A ==> B`. */
 const EDGE = /-->|---|==>|-\.+->?/
+/** A class or entity relation such as `A <|-- B`, `A *-- B` or `A ||--o{ B`. */
+const RELATION = /<\|--|\*--|o--|\|\|--|\}o--|--o\{|--\|\{/
 /** A sequence message such as `A->>B: call` or `B-->>A: reply`. */
 const MESSAGE = /\S\s*-{1,2}(?:>>|>|x|\))\s*[^:\n]+:/
 
@@ -134,6 +136,11 @@ export const PlanInputSchema = z.object({
   steps: z.array(StepInputSchema).min(1).max(40),
   diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change (flowchart or sequenceDiagram). Keep each node label on one short line."),
   sequence: z.string().max(8000).optional().describe("Mermaid sequenceDiagram of the runtime interaction the change touches."),
+  diagrams: z
+    .array(z.object({ title: z.string().min(1).max(80), source: z.string().max(8000) }))
+    .max(4)
+    .optional()
+    .describe("Extra diagrams the agent judged worth drawing."),
   alternatives: z.array(AlternativeSchema).max(8).optional().describe("Approaches considered; mark the chosen one."),
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
@@ -180,6 +187,29 @@ export const ProposeInputSchema = z
     )
     .describe(
       "Required: a mermaid flowchart, as a list of lines, giving the big picture: the components involved and what the change adds or alters between them. One short line per node label.",
+    ),
+  diagrams: tolerant(
+    z
+      .array(
+        z.object({
+          title: z.string().min(1).max(80),
+          source: textLines
+            .transform(overviewSource)
+            .pipe(
+              z
+                .string()
+                .max(8000)
+                .refine((source) => EDGE.test(source) || MESSAGE.test(source) || RELATION.test(source), {
+                  message: "each extra diagram needs real mermaid syntax (edges, messages or relations), not prose",
+                }),
+            ),
+        }),
+      )
+      .max(4),
+  )
+    .optional()
+    .describe(
+      "Optional extra diagrams, only where a picture adds something the overview and sequence do not: a state machine (stateDiagram-v2), a before/after flow, a data model (classDiagram or erDiagram). Each is {title, source} with source as a list of mermaid lines.",
     ),
   alternatives: tolerant(AlternativeSchema.array().max(8)).optional().describe("Approaches considered; mark the chosen one."),
 })

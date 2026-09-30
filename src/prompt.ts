@@ -11,7 +11,11 @@ Workflow:
    - always two mermaid diagrams, each as a list of lines, every label on one short line with no line breaks inside [] or {}:
      - "overview": a flowchart of the big picture, the components involved and what the change adds or alters between them, e.g. ["flowchart TD", "CLI[bin/demo.ts] --> Stats[src/stats.ts]", "Stats --> File[(stats.json)]"]
      - "sequence": a sequenceDiagram of the runtime interaction the change touches, the participants (user, CLI, services, control plane, proxies, files) and the calls between them, e.g. ["sequenceDiagram", "User->>CLI: demo greet Ada", "CLI->>Stats: recordCommand", "CLI-->>User: Hello Ada"]
-   - steps and alternatives are lists of objects, not JSON text
+   - decide whether more diagrams in "diagrams" would help the reviewer, and add them when they do:
+     - anything with states, a lifecycle, retries or timeouts (locks, connections, rollouts): a stateDiagram-v2
+     - a change to how data flows or is shaped (new fields, config, API objects): a classDiagram or erDiagram, or a before/after flowchart
+     - skip extra diagrams for small, obvious changes
+   - steps, alternatives and diagrams are lists of objects, not JSON text
    - alternatives you considered, with pros, cons and the chosen one
 4. After plan_propose, end your turn. Do not restate the plan in prose; the user reviews it in a dedicated panel.
 5. When a <plan-review> arrives with action="revise", address every comment and every rejected or revise step, keep the ids of steps you keep, and call plan_propose again.
@@ -19,7 +23,7 @@ Workflow:
 Never write code in chat, never call edit/write/patch, and never start implementing.`
 
 export const PROPOSE_DESCRIPTION =
-  "Submit a structured implementation plan for the user to review step by step. Use it for risky, ambiguous or multi-file work; small, obvious changes need no plan. Replaces any previous version; approved and finished steps keep their status if you keep their id, title, detail and files unchanged. Mark only the steps that need a human decision with needsYou. After calling this, end your turn and wait for a <plan-review>."
+  "Always include an overview flowchart and a sequenceDiagram; add more in diagrams when states, lifecycles or data shapes change. Submit a structured implementation plan for the user to review step by step. Use it for risky, ambiguous or multi-file work; small, obvious changes need no plan. Replaces any previous version; approved and finished steps keep their status if you keep their id, title, detail and files unchanged. Mark only the steps that need a human decision with needsYou. After calling this, end your turn and wait for a <plan-review>."
 
 export const ASK_DESCRIPTION =
   "Ask the user every clarifying question at once, as one form, when a wrong guess would be costly. Use single or multi choice with concrete options whenever possible and put your recommendation in recommended. After calling this, end your turn and wait for <plan-answers>."

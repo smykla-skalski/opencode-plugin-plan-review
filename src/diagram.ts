@@ -39,6 +39,15 @@ export function pan(art: string, offset: number, width: number): Window {
   }
 }
 
+/** Drops blank edge lines and the indent all lines share, keeping columns aligned across lines. */
+export function dedent(art: string) {
+  const lines = art.split("\n").map((line) => line.trimEnd())
+  while (lines.length && !lines[0]) lines.shift()
+  while (lines.length && !lines.at(-1)) lines.pop()
+  const indent = Math.min(...lines.filter(Boolean).map((line) => line.length - line.trimStart().length))
+  return lines.map((line) => line.slice(Number.isFinite(indent) ? indent : 0)).join("\n")
+}
+
 /** Text-art rendering of a mermaid diagram, or null when the source cannot be drawn. */
 export function renderDiagram(source: string): string | null {
   try {
@@ -48,12 +57,7 @@ export function renderDiagram(source: string): string | null {
       boxBorderPadding: 0,
       colorMode: "none",
     })
-    const trimmed = art
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .join("\n")
-      .trim()
-    return trimmed || null
+    return dedent(art) || null
   } catch {
     return null
   }

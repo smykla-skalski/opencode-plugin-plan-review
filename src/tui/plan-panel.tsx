@@ -346,6 +346,14 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                   </>
                 )}
               </Show>
+              <For each={props.plan.diagrams ?? []}>
+                {(extra) => (
+                  <>
+                    <Section theme={theme} title={extra.title} />
+                    <DiagramView theme={theme} source={extra.source} width={diagramWidth()} offset={offset()} />
+                  </>
+                )}
+              </For>
               <Show when={props.plan.alternatives?.length}>
                 <Section theme={theme} title="Alternatives considered" />
                 <Alternatives theme={theme} plan={props.plan} />

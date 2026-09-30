@@ -55,6 +55,17 @@ describe("renderDiagram", () => {
     assert.ok(art?.includes("s1: pin versions kuma3-preflight"))
   })
 
+  it("keeps sequence participant boxes aligned (no first-line shift)", () => {
+    const art = renderDiagram(
+      "sequenceDiagram\n  participant P as Dataplane proxy\n  participant X as xds generator\n  P->>X: request snapshot",
+    )
+    assert.ok(art)
+    const [top, middle] = art.split("\n")
+    assert.ok(top && middle)
+    for (let column = 0; column < top.length; column += 1)
+      if (top[column] === "┌") assert.equal(middle[column], "│", `box corner at column ${column}`)
+  })
+
   it("draws sequence diagrams", () => {
     assert.ok(renderDiagram("sequenceDiagram\n  A->>B: hi\n  B-->>A: ok")?.includes("hi"))
   })

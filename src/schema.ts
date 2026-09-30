@@ -1,5 +1,65 @@
 import { z } from "zod"
 
+/** JSON.parse, retried once with backtick-quoted values turned into JSON strings, a slip models make. */
+export function parseLooseJson(text: string): { ok: true; value: unknown } | { ok: false; error: string } {
+  const attempt = (source: string) => {
+    try {
+      return { ok: true as const, value: JSON.parse(source) as unknown }
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+  const first = attempt(text)
+  if (first.ok) return first
+  const repaired = text.replaceAll(/:\s*`([^`]*)`/g, (_, value: string) => `: ${JSON.stringify(value)}`)
+  return repaired === text ? first : attempt(repaired)
+}
+
+/** Also accepts the value as JSON text: weaker tool-callers often stringify nested arrays and objects. */
+function tolerant<T extends z.ZodType>(schema: T) {
+  return z.union([
+    schema,
+    z
+      .string()
+      .transform((text, ctx) => {
+        const parsed = parseLooseJson(text)
+        if (parsed.ok) return parsed.value
+        ctx.addIssue({ code: "custom", message: `send a list, not text; the text is not valid JSON (${parsed.error})` })
+        return z.NEVER
+      })
+      .pipe(schema),
+  ])
+}
+
+const DIAGRAM_HEADER =
+  /^(sequenceDiagram|flowchart|graph|classDiagram|stateDiagram(-v2)?|erDiagram|gantt|pie|journey|mindmap|timeline|gitGraph)\b/
+
+/** Strips fences and adds `header` when a model sends only the diagram body, as it often does with a line list. */
+function mermaidSource(header: string) {
+  return (source: string) => {
+    const body = source
+      .replace(/^\s*```(?:mermaid)?\s*\n?/, "")
+      .replace(/\n?\s*```\s*$/, "")
+      .trim()
+    return DIAGRAM_HEADER.test(body) ? body : `${header}\n${body}`
+  }
+}
+
+/** A flowchart edge such as `A --> B`, `A -.-> B` or `A ==> B`. */
+const EDGE = /-->|---|==>|-\.+->?/
+/** A class or entity relation such as `A <|-- B`, `A *-- B` or `A ||--o{ B`. */
+const RELATION = /<\|--|\*--|o--|\|\|--|\}o--|--o\{|--\|\{/
+/** A sequence message such as `A->>B: call` or `B-->>A: reply`. */
+const MESSAGE = /\S\s*-{1,2}(?:>>|>|x|\))\s*[^:\n]+:/
+
+export const sequenceSource = mermaidSource("sequenceDiagram")
+export const overviewSource = mermaidSource("flowchart TD")
+
+/** Lines of text, joined; a list keeps long text off opencode's one-line tool summary. */
+const textLines = z.union([z.array(z.string()), z.string()]).transform((value) =>
+  Array.isArray(value) ? value.join("\n") : value,
+)
+
 export const RiskSchema = z.enum(["low", "medium", "high"])
 export type Risk = z.infer<typeof RiskSchema>
 
@@ -30,7 +90,7 @@ export const StepInputSchema = z.object({
     .describe("Workspace-relative paths or globs this step edits. Execution asks before touching anything else."),
   risk: RiskSchema.default("low"),
   dependsOn: z.array(z.string()).optional().describe("Ids of steps that must run first."),
-  diagram: z.string().max(4000).optional().describe("Optional mermaid source illustrating this step."),
+  diagram: z.string().max(4000).optional().describe("Optional mermaid source illustrating this step. Keep each node label on one short line."),
   needsYou: z
     .string()
     .max(300)
@@ -41,27 +101,119 @@ export const StepInputSchema = z.object({
 })
 export type StepInput = z.infer<typeof StepInputSchema>
 
-export const AlternativeSchema = z.object({
-  name: z.string().min(1).max(120),
-  pros: z.array(z.string()).default([]),
-  cons: z.array(z.string()).default([]),
-  chosen: z.boolean().default(false),
-})
+/** A list of points, also accepted as one "a; b; c" string. */
+const points = z
+  .union([z.array(z.string()), z.string()])
+  .transform((value) =>
+    Array.isArray(value)
+      ? value
+      : value
+          .split(";")
+          .map((point) => point.trim())
+          .filter(Boolean),
+  )
+  .default([])
+
+const CHOSEN_MARK = /\s*\(chosen\)\s*/i
+
+export const AlternativeSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    pros: points,
+    cons: points,
+    chosen: z.boolean().optional(),
+  })
+  .transform(({ name, chosen, ...rest }) => ({
+    ...rest,
+    name: name.replace(CHOSEN_MARK, " ").trim(),
+    chosen: chosen ?? CHOSEN_MARK.test(name),
+  }))
 export type Alternative = z.infer<typeof AlternativeSchema>
 
 export const PlanInputSchema = z.object({
   title: z.string().min(1).max(120),
   summary: z.string().max(4000).describe("Goal and approach in a few sentences of markdown."),
   steps: z.array(StepInputSchema).min(1).max(40),
-  diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change."),
+  diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change (flowchart or sequenceDiagram). Keep each node label on one short line."),
+  sequence: z.string().max(8000).optional().describe("Mermaid sequenceDiagram of the runtime interaction the change touches."),
+  diagrams: z
+    .array(z.object({ title: z.string().min(1).max(80), source: z.string().max(8000) }))
+    .max(4)
+    .optional()
+    .describe("Extra diagrams the agent judged worth drawing."),
   alternatives: z.array(AlternativeSchema).max(8).optional().describe("Approaches considered; mark the chosen one."),
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
 
-/** Wrapped in one object so opencode's tool line shows `plan_propose`, not every text field in full. */
-export const ProposeInputSchema = z.object({
-  plan: PlanInputSchema.describe("The whole plan as one object: title, summary, steps, and optional diagram and alternatives."),
+/**
+ * What plan_propose accepts. Flat arguments, because weaker models mangle nested objects; lists and
+ * line arrays for everything long, because opencode prints top-level text arguments in full.
+ */
+export const ProposeInputSchema = z
+  .object({
+  title: PlanInputSchema.shape.title,
+  summary: textLines
+    .pipe(z.string().max(4000))
+    .describe("Goal and approach, as a list of short paragraphs (markdown)."),
+  steps: tolerant(PlanInputSchema.shape.steps),
+  sequence: textLines
+    .transform(sequenceSource)
+    .pipe(
+      z
+        .string()
+        .max(8000)
+        .refine((source) => /^sequenceDiagram\b/.test(source), {
+          message: "sequence must be a mermaid sequenceDiagram, not another diagram type",
+        })
+        .refine((source) => MESSAGE.test(source), {
+          message: 'sequence needs mermaid messages between participants, e.g. ["User->>CLI: demo greet", "CLI-->>User: Hello"], not prose',
+        }),
+    )
+    .describe(
+      "Required: a mermaid sequenceDiagram, as a list of lines, of the runtime interaction the change touches (participants and the calls between them, before and after where it helps).",
+    ),
+  overview: textLines
+    .transform(overviewSource)
+    .pipe(
+      z
+        .string()
+        .max(8000)
+        .refine((source) => !/^sequenceDiagram\b/.test(source), {
+          message: "overview must be a structural diagram (flowchart); the sequenceDiagram goes in sequence",
+        })
+        .refine((source) => EDGE.test(source), {
+          message: 'overview needs flowchart edges, e.g. ["CLI[bin/demo.ts] --> Stats[src/stats.ts]"], not prose',
+        }),
+    )
+    .describe(
+      "Required: a mermaid flowchart, as a list of lines, giving the big picture: the components involved and what the change adds or alters between them. One short line per node label.",
+    ),
+  diagrams: tolerant(
+    z
+      .array(
+        z.object({
+          title: z.string().min(1).max(80),
+          source: textLines
+            .transform(overviewSource)
+            .pipe(
+              z
+                .string()
+                .max(8000)
+                .refine((source) => EDGE.test(source) || MESSAGE.test(source) || RELATION.test(source), {
+                  message: "each extra diagram needs real mermaid syntax (edges, messages or relations), not prose",
+                }),
+            ),
+        }),
+      )
+      .max(4),
+  )
+    .optional()
+    .describe(
+      "Optional extra diagrams, only where a picture adds something the overview and sequence do not: a state machine (stateDiagram-v2), a before/after flow, a data model (classDiagram or erDiagram). Each is {title, source} with source as a list of mermaid lines.",
+    ),
+  alternatives: tolerant(AlternativeSchema.array().max(8)).optional().describe("Approaches considered; mark the chosen one."),
 })
+  .transform(({ overview, ...plan }) => ({ ...plan, diagram: overview }))
 export type ProposeInput = z.infer<typeof ProposeInputSchema>
 
 export const CheckSchema = z.object({
@@ -149,7 +301,7 @@ export const QuestionSchema = z.object({
 export type Question = z.infer<typeof QuestionSchema>
 
 export const QuestionsInputSchema = z.object({
-  questions: z.array(QuestionSchema).min(1).max(12),
+  questions: tolerant(z.array(QuestionSchema).min(1).max(12)),
 })
 export type QuestionsInput = z.infer<typeof QuestionsInputSchema>
 
@@ -170,13 +322,13 @@ export const StepUpdateSchema = z.object({
   stepID: z.string(),
   status: z.enum(["in_progress", "done", "blocked", "skipped"]),
   note: z.string().max(1000).optional(),
-  check: CheckSchema.optional().describe("Required with done: how you verified the step."),
+  check: tolerant(CheckSchema).optional().describe("Required with done: how you verified the step."),
 })
 export type StepUpdate = z.infer<typeof StepUpdateSchema>
 
 export const AmendSchema = z.object({
   reason: z.string().min(1).max(500).describe("What you discovered that the plan did not cover."),
-  steps: z.array(StepInputSchema).min(1).max(10).describe("New steps with new ids."),
+  steps: tolerant(z.array(StepInputSchema).min(1).max(10)).describe("New steps with new ids."),
 })
 export type Amend = z.infer<typeof AmendSchema>
 

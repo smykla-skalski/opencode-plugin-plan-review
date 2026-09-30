@@ -21,6 +21,10 @@ const VERDICT_STATUS: Record<Verdict, Step["status"]> = { approve: "approved", r
 
 export const isFinished = (step: Step) => step.status === "done" || step.status === "skipped"
 
+/** The panel stays pinned open from the first question until the plan starts executing. */
+export const pinned = (view: { readonly plan: Plan | null; readonly questions: Questions | null } | undefined) =>
+  Boolean(view?.questions) || view?.plan?.state === "review"
+
 /** Status shown in the panel: the pending draft verdict wins over the stored one, except on finished steps. */
 export function effectiveStatus(step: Step, draft: StepDraft | undefined): Step["status"] {
   if (isFinished(step)) return step.status
@@ -55,3 +59,32 @@ export const CONFIRM_OPTIONS = [
 
 export const optionsOf = (question: Question) =>
   question.kind === "confirm" ? CONFIRM_OPTIONS : (question.options ?? [])
+
+/** One cursor stop in the questions form: an option, a text answer, or the send button. */
+export type FormRow =
+  | { readonly kind: "option"; readonly question: number; readonly option: number }
+  | { readonly kind: "text"; readonly question: number }
+  | { readonly kind: "send" }
+
+export function formRows(questions: Questions): FormRow[] {
+  const rows = questions.questions.flatMap((question, index): FormRow[] =>
+    question.kind === "text"
+      ? [{ kind: "text", question: index }]
+      : optionsOf(question).map((_, option) => ({ kind: "option", question: index, option })),
+  )
+  return [...rows, { kind: "send" }]
+}
+
+const questionOf = (row: FormRow | undefined) => (row && row.kind !== "send" ? row.question : undefined)
+
+/** Row index of the first stop of the next (or previous) question; the send row ends the form. */
+export function jumpQuestion(rows: readonly FormRow[], index: number, delta: 1 | -1): number {
+  const current = questionOf(rows[index])
+  if (delta === 1) {
+    const next = rows.findIndex((row, at) => at > index && questionOf(row) !== current)
+    return next === -1 ? rows.length - 1 : next
+  }
+  const target = current === undefined ? questionOf(rows.at(-2)) : current - 1
+  if (target === undefined || target < 0) return 0
+  return rows.findIndex((row) => questionOf(row) === target)
+}

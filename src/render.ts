@@ -22,6 +22,8 @@ const fence = (source: string) => ["```mermaid", source.trim(), "```"].join("\n"
 export function planMarkdown(plan: Plan) {
   const lines = [`## ${plan.title} (v${plan.version})`, "", plan.summary.trim()]
   if (plan.diagram) lines.push("", fence(plan.diagram))
+  if (plan.sequence) lines.push("", fence(plan.sequence))
+  for (const extra of plan.diagrams ?? []) lines.push("", `**${extra.title}**`, fence(extra.source))
   if (plan.alternatives?.length) {
     lines.push("", "| Option | Pros | Cons | Chosen |", "| --- | --- | --- | --- |")
     for (const alt of plan.alternatives)

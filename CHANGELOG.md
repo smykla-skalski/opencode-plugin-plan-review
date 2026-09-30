@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Every plan carries an overview flowchart and a sequence diagram; the agent adds state, class or ER diagrams when states, lifecycles or data shapes change.
+- Diagrams render as text art in the panel, pan sideways with ←/→ when wider than the panel, and keep their boxes aligned.
+- The panel stays open from the first question until the plan runs; `q` returns to the chat instead of closing it.
+- The questions form moves one cursor through every option with the arrow keys; Enter accepts and moves on, and a Send row submits.
+- The plan panel scrolls as one area (arrows past the first or last step, page keys, mouse wheel), labels its sections, lists alternatives with pros and cons, and shows every step with `⚑` on the ones needing a decision.
+- Plan tools accept weaker tool-calling models: flat arguments, lists sent as JSON text, backtick-quoted values, and diagram bodies without a header.
+
 ## 0.1.3
 
 - `plan_propose` takes the plan as one `plan` object, so the timeline shows a single `plan_propose` line instead of every text field in full.

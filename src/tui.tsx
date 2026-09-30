@@ -4,6 +4,7 @@ import { createEffect, Match, Show, Switch } from "solid-js"
 import { tallyLine } from "./render.ts"
 import type { ChangeReason } from "./rpc.ts"
 import { createState, PANEL, type View } from "./tui/api.ts"
+import { pinned } from "./tui/draft.ts"
 import { PlanPanel } from "./tui/plan-panel.tsx"
 import { QuestionsForm } from "./tui/questions-form.tsx"
 
@@ -75,6 +76,11 @@ const plugin: Plugin.Definition = {
       render(input) {
         createEffect(() => ensure(input.sessionID))
         const view = () => state.view(input.sessionID)
+        createEffect(() => {
+          if (!pinned(view())) return
+          const shown = ctx.ui.panel.current()
+          if (shown?.name !== PANEL || shown.sessionID !== input.sessionID) ctx.ui.panel.open(PANEL)
+        })
         return (
           <Switch>
             <Match when={view()?.questions}>

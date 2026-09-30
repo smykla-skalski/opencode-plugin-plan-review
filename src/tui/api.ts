@@ -1,7 +1,8 @@
 import type { Plugin } from "@opencode/plugin/tui"
+import type { PanelInput } from "@opencode/plugin/tui/context"
 import { PlanRpc } from "../rpc.ts"
 import type { Plan, Questions } from "../schema.ts"
-import type { AnswerDraft, PlanDraft } from "./draft.ts"
+import { pinned, type AnswerDraft, type PlanDraft } from "./draft.ts"
 
 export const PANEL = "plan-review"
 
@@ -42,3 +43,15 @@ export function createState(ctx: Plugin.Context) {
 }
 
 export type State = ReturnType<typeof createState>
+
+/** How to leave the panel for the chat, using the user's own binding for focusing the session pane. */
+export function chatHint(ctx: Plugin.Context) {
+  const focus = ctx.keymap.shortcuts("pane.focus.left")[0] ?? "click the chat"
+  return `To chat: ${focus} or q focuses the prompt · the panel stays until the plan runs · /plan reopens it`
+}
+
+/** q in the panel: while the plan is still being shaped the panel stays and focus returns to the chat. */
+export function leave(ctx: Plugin.Context, panel: PanelInput, state: State, sessionID: string) {
+  if (pinned(state.view(sessionID))) ctx.keymap.dispatch("pane.focus.left")
+  else panel.close()
+}

@@ -11,6 +11,7 @@ const plan = () => {
       title: "T",
       summary: "S",
       diagram: "flowchart LR\n A-->B",
+      sequence: "sequenceDiagram\n  A->>B: call",
       alternatives: [{ name: "SDK", pros: ["less code"], cons: ["dep"], chosen: true }],
       steps: [
         { id: "s1", title: "One", detail: "d1", files: ["a.ts"] },
@@ -28,6 +29,7 @@ describe("render", () => {
   it("renders mermaid, alternatives and every step in the markdown fallback", () => {
     const text = planMarkdown(plan())
     assert.match(text, /```mermaid\nflowchart LR/)
+    assert.match(text, /```mermaid\nsequenceDiagram/)
     assert.match(text, /\| SDK \| less code \| dep \| ✓ \|/)
     assert.match(text, /s1\. One/)
     assert.match(text, /s2\. Two/)

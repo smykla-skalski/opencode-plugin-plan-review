@@ -111,7 +111,7 @@ const plugin: Plugin.Plugin = {
         async execute(input, context) {
           if (!planners.has(context.agent)) return { content: `Only ${[...planners].join(" or ")} can propose plans.` }
           const next = await transition(context.sessionID, (previous) =>
-            wrap(propose(previous, input.plan, context.sessionID, Date.now())),
+            wrap(propose(previous, input, context.sessionID, Date.now())),
           )
           if (!next.ok) return { content: `Plan rejected: ${next.error}` }
           const { plan } = next.value

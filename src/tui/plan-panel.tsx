@@ -3,7 +3,7 @@ import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
 import { SyntaxStyle, TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
-import { attention, drift } from "../plan.ts"
+import { drift } from "../plan.ts"
 import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
 import type { Plan, ReviewReason, Risk, Step, Verdict } from "../schema.ts"
 import { chatHint, leave, type State } from "./api.ts"
@@ -32,7 +32,7 @@ const HELP = [
   "↑/↓ pick a step; past the ends they scroll · pgup/pgdn page · g/G top/bottom",
   "←/→ pan a wide diagram · f fullscreen · o hide or show the summary",
   "a approve · r reject · v ask to revise · e edit · c comment · A approve all undecided",
-  "n general feedback · . show or fold routine steps · d open the diff viewer",
+  "n general feedback · d open the diff viewer · ⚑ marks the steps that need your decision",
   "s send the review back to the agent · x run the approved steps · q back to chat (closes once the plan runs)",
 ]
 
@@ -100,7 +100,6 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   const sessionID = () => props.plan.sessionID
   const [selected, setSelected] = createSignal(0)
   const [showSummary, setShowSummary] = createSignal(true)
-  const [showAll, setShowAll] = createSignal(false)
   const [offset, setOffset] = createSignal(0)
   const [help, setHelp] = createSignal(false)
   const diagramWidth = () => Math.max(20, props.panel.width - 4)
@@ -111,14 +110,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   })
   const reviewing = () => props.plan.state === "review"
 
-  const flagged = (item: Step) =>
-    attention(item) || Boolean(draft().steps[item.id]) || item.status === "in_progress"
-  const visible = createMemo(() => {
-    if (showAll()) return props.plan.steps
-    const shown = props.plan.steps.filter(flagged)
-    return shown.length ? shown : props.plan.steps
-  })
-  const folded = createMemo(() => props.plan.steps.length - visible().length)
+  const visible = () => props.plan.steps
   const step = createMemo(() => visible()[Math.min(selected(), visible().length - 1)])
 
   const mutate = (id: string, change: (step: StepDraft) => void) =>
@@ -191,10 +183,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       const status = (item: Step) => effectiveStatus(item, draft().steps[item.id])
       const pending = props.plan.steps.filter((item) => status(item) === "approved")
       const skipped = props.plan.steps.filter((item) => ["proposed", "rejected", "revise"].includes(status(item)))
-      const hidden = skipped.filter((item) => !visible().includes(item)).length
       const resuming = props.plan.reviewReason !== "plan"
       const skipLine = skipped.length
-        ? ` Skipped (not approved): ${skipped.map((item) => item.id).join(", ")}${hidden ? `, ${hidden} of them folded; press A to approve all or . to show them` : ""}.`
+        ? ` Skipped (not approved): ${skipped.map((item) => item.id).join(", ")}; press A to approve every undecided step.`
         : ""
       const confirmed = await props.ctx.ui.dialog.confirm({
         title: resuming ? "Continue execution?" : "Execute approved steps?",
@@ -247,7 +238,6 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "n", title: "General feedback", group: "Plan", run: note },
       { bind: "s", title: "Send review (revise)", group: "Plan", run: () => submit("revise") },
       { bind: "x", title: "Execute / continue", group: "Plan", run: () => submit("execute") },
-      { bind: ".", title: "Show or fold routine steps", group: "Plan", run: () => setShowAll((value) => !value) },
       { bind: "d", title: "Open diff viewer", group: "Plan", run: () => props.ctx.keymap.dispatch("diff.open") },
       { bind: "right,l", title: "Pan diagram right", group: "Plan", run: () => setOffset((at) => at + 12) },
       { bind: "left,h", title: "Pan diagram left", group: "Plan", run: () => setOffset((at) => Math.max(0, at - 12)) },
@@ -427,11 +417,6 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                 )
               }}
             </For>
-            <Show when={folded() > 0}>
-              <text fg={theme.text.muted} onMouseUp={() => setShowAll(true)}>
-                {"  "}+ {folded()} routine step(s) folded · . to show
-              </text>
-            </Show>
           </box>
 
           <Show when={step()}>

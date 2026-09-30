@@ -97,6 +97,10 @@ last step done ──► "what changed" digest: checks, touched files, drift, ri
 - Planning agents do not get opencode's one-question-at-a-time `question` tool; `plan_ask` replaces it. `plan_step` and `plan_amend` exist only while a plan executes.
 - Touched files come from the edit permission check: each edit is attributed to the step in progress, and an edit outside that step's files shows as drift.
 
+### History RPC
+
+`planreview.history({ sessionID })` returns `{ events }` in chronological order. Each event has a stable session-local `id`, timestamp `at`, `reason`, plan `version`, and a plan snapshot. Review events also include the submitted action, decisions, and note. Events are stored separately in plugin storage and survive restarts. `planreview.get` remains the current-state endpoint.
+
 ## Known gaps
 
 These need changes in opencode itself; the plugin works around them.

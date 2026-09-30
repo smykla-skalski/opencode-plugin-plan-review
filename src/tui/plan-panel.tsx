@@ -6,7 +6,7 @@ import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import { attention, drift } from "../plan.ts"
 import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
 import type { Plan, ReviewReason, Risk, Step, Verdict } from "../schema.ts"
-import { chatHint, type State } from "./api.ts"
+import { chatHint, leave, type State } from "./api.ts"
 import { DiagramView } from "./diagram-view.tsx"
 import { effectiveStatus, freshDraft, isFinished, toReview, type PlanDraft, type StepDraft } from "./draft.ts"
 
@@ -33,7 +33,7 @@ const HELP = [
   "←/→ pan a wide diagram · f fullscreen · o hide or show the summary",
   "a approve · r reject · v ask to revise · e edit · c comment · A approve all undecided",
   "n general feedback · . show or fold routine steps · d open the diff viewer",
-  "s send the review back to the agent · x run the approved steps · q close",
+  "s send the review back to the agent · x run the approved steps · q back to chat (closes once the plan runs)",
 ]
 
 function Section(props: { theme: Ctx["theme"]; title: string; aside?: string }) {
@@ -216,7 +216,6 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       variant: "success",
     })
     await props.state.refresh(sessionID())
-    if (action === "revise") props.panel.close()
   }
 
   let scroll: ScrollBoxRenderable | undefined
@@ -259,7 +258,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "end,shift+g", title: "Scroll to bottom", group: "Plan", run: () => scroll?.scrollTo(scroll.scrollHeight) },
       { bind: "o", title: "Toggle summary", group: "Plan", run: () => setShowSummary((value) => !value) },
       { bind: "f", title: "Toggle fullscreen", group: "Plan", run: () => props.panel.toggleFullscreen() },
-      { bind: "q", title: "Close plan", group: "Plan", run: () => props.panel.close() },
+      { bind: "q", title: "Back to chat (closes once the plan runs)", group: "Plan", run: () => leave(props.ctx, props.panel, props.state, props.panel.sessionID) },
     ],
   }))
 

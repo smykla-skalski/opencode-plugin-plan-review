@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 import { propose } from "../src/plan.ts"
 import { PlanInputSchema, type Question } from "../src/schema.ts"
-import { effectiveStatus, formRows, initialAnswers, jumpQuestion, toReview, toggle } from "../src/tui/draft.ts"
+import { effectiveStatus, formRows, initialAnswers, jumpQuestion, pinned, toReview, toggle } from "../src/tui/draft.ts"
 
 const single: Question = { id: "a", question: "?", kind: "single", options: [{ value: "x", label: "X" }] }
 const multi: Question = { ...single, kind: "multi" }
@@ -55,6 +55,30 @@ describe("draft", () => {
       note: "ok",
       decisions: [{ stepID: "s1", verdict: "approve" }],
     })
+  })
+})
+
+describe("pinned", () => {
+  const plan = (state: "review" | "executing" | "done") => {
+    const result = propose(
+      undefined,
+      PlanInputSchema.parse({ title: "T", summary: "S", steps: [{ id: "s1", title: "t", detail: "d" }] }),
+      "ses_1",
+      1,
+    )
+    assert.ok(result.ok)
+    return { ...result.value, state }
+  }
+  const questions = { id: "q1", sessionID: "ses_1", questions: [single] }
+
+  it("keeps the panel open from the first question until the plan runs", () => {
+    assert.equal(pinned(undefined), false)
+    assert.equal(pinned({ plan: null, questions: null }), false)
+    assert.equal(pinned({ plan: null, questions }), true)
+    assert.equal(pinned({ plan: plan("review"), questions: null }), true)
+    assert.equal(pinned({ plan: plan("executing"), questions: null }), false)
+    assert.equal(pinned({ plan: plan("done"), questions: null }), false)
+    assert.equal(pinned({ plan: plan("executing"), questions }), true)
   })
 })
 

@@ -21,6 +21,10 @@ const VERDICT_STATUS: Record<Verdict, Step["status"]> = { approve: "approved", r
 
 export const isFinished = (step: Step) => step.status === "done" || step.status === "skipped"
 
+/** The panel stays pinned open from the first question until the plan starts executing. */
+export const pinned = (view: { readonly plan: Plan | null; readonly questions: Questions | null } | undefined) =>
+  Boolean(view?.questions) || view?.plan?.state === "review"
+
 /** Status shown in the panel: the pending draft verdict wins over the stored one, except on finished steps. */
 export function effectiveStatus(step: Step, draft: StepDraft | undefined): Step["status"] {
   if (isFinished(step)) return step.status

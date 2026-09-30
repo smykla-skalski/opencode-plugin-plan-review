@@ -4,7 +4,7 @@ import type { PanelInput } from "@opencode/plugin/tui/context"
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import type { Question, Questions } from "../schema.ts"
-import { chatHint, type State } from "./api.ts"
+import { chatHint, leave, type State } from "./api.ts"
 import { formRows, initialAnswers, jumpQuestion, optionsOf, toggle, type AnswerDraft } from "./draft.ts"
 
 type Ctx = Plugin.Context
@@ -131,7 +131,7 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
       { bind: "space", title: "Toggle option", group: "Questions", run: pick },
       { bind: "ctrl+s", title: "Send answers", group: "Questions", run: submit },
       { bind: "f", title: "Toggle fullscreen", group: "Questions", run: () => props.panel.toggleFullscreen() },
-      { bind: "q", title: "Close", group: "Questions", run: () => props.panel.close() },
+      { bind: "q", title: "Back to chat (closes once the plan runs)", group: "Questions", run: () => leave(props.ctx, props.panel, props.state, props.panel.sessionID) },
     ],
   }))
 

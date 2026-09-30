@@ -180,8 +180,14 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
 
   let scroll: ScrollBoxRenderable | undefined
   const page = () => Math.max(3, (scroll?.height ?? 20) - 2)
+  /** Arrows pick steps; past the first or last step they scroll, reaching the summary above and the detail below. */
   const move = (delta: number) => {
-    setSelected((index) => Math.max(0, Math.min(visible().length - 1, index + delta)))
+    const next = selected() + delta
+    if (next < 0 || next >= visible().length) {
+      scroll?.scrollBy(delta * 3)
+      return
+    }
+    setSelected(next)
     const current = step()
     if (current) scroll?.scrollChildIntoView(rowID(current.id))
   }
@@ -396,8 +402,8 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
         {props.plan.state === "done"
           ? "pgup/pgdn scroll · d diff · f fullscreen · q close"
           : reviewing()
-            ? "j/k · pgup/pgdn scroll · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
-            : "j/k · pgup/pgdn scroll · c comment · . fold · d diff · f fullscreen · q close"}
+            ? "↑/↓ steps & scroll · pgup/pgdn · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
+            : "↑/↓ steps & scroll · pgup/pgdn · c comment · . fold · d diff · f fullscreen · q close"}
       </text>
     </box>
   )

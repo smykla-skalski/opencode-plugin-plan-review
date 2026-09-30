@@ -1,5 +1,28 @@
 import { z } from "zod"
 
+/** Also accepts the value as JSON text: weaker tool-callers often stringify nested arrays and objects. */
+function tolerant<T extends z.ZodType>(schema: T) {
+  return z.union([
+    schema,
+    z
+      .string()
+      .transform((text, ctx) => {
+        try {
+          return JSON.parse(text) as unknown
+        } catch {
+          ctx.addIssue({ code: "custom", message: "expected structured data, not text" })
+          return z.NEVER
+        }
+      })
+      .pipe(schema),
+  ])
+}
+
+/** Lines of text, joined; a list keeps long text off opencode's one-line tool summary. */
+const textLines = z.union([z.array(z.string()), z.string()]).transform((value) =>
+  Array.isArray(value) ? value.join("\n") : value,
+)
+
 export const RiskSchema = z.enum(["low", "medium", "high"])
 export type Risk = z.infer<typeof RiskSchema>
 
@@ -58,9 +81,21 @@ export const PlanInputSchema = z.object({
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
 
-/** Wrapped in one object so opencode's tool line shows `plan_propose`, not every text field in full. */
+/**
+ * What plan_propose accepts. Flat arguments, because weaker models mangle nested objects; lists and
+ * line arrays for everything long, because opencode prints top-level text arguments in full.
+ */
 export const ProposeInputSchema = z.object({
-  plan: PlanInputSchema.describe("The whole plan as one object: title, summary, steps, and optional diagram and alternatives."),
+  title: PlanInputSchema.shape.title,
+  summary: textLines
+    .pipe(z.string().max(4000))
+    .describe("Goal and approach, as a list of short paragraphs (markdown)."),
+  steps: tolerant(PlanInputSchema.shape.steps),
+  diagram: textLines
+    .pipe(z.string().max(8000))
+    .optional()
+    .describe("Optional mermaid source as a list of lines (flowchart or sequenceDiagram); one short line per node label."),
+  alternatives: tolerant(AlternativeSchema.array().max(8)).optional().describe("Approaches considered; mark the chosen one."),
 })
 export type ProposeInput = z.infer<typeof ProposeInputSchema>
 
@@ -149,7 +184,7 @@ export const QuestionSchema = z.object({
 export type Question = z.infer<typeof QuestionSchema>
 
 export const QuestionsInputSchema = z.object({
-  questions: z.array(QuestionSchema).min(1).max(12),
+  questions: tolerant(z.array(QuestionSchema).min(1).max(12)),
 })
 export type QuestionsInput = z.infer<typeof QuestionsInputSchema>
 
@@ -170,13 +205,13 @@ export const StepUpdateSchema = z.object({
   stepID: z.string(),
   status: z.enum(["in_progress", "done", "blocked", "skipped"]),
   note: z.string().max(1000).optional(),
-  check: CheckSchema.optional().describe("Required with done: how you verified the step."),
+  check: tolerant(CheckSchema).optional().describe("Required with done: how you verified the step."),
 })
 export type StepUpdate = z.infer<typeof StepUpdateSchema>
 
 export const AmendSchema = z.object({
   reason: z.string().min(1).max(500).describe("What you discovered that the plan did not cover."),
-  steps: z.array(StepInputSchema).min(1).max(10).describe("New steps with new ids."),
+  steps: tolerant(z.array(StepInputSchema).min(1).max(10)).describe("New steps with new ids."),
 })
 export type Amend = z.infer<typeof AmendSchema>
 

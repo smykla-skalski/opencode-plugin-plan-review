@@ -1,7 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
-import { SyntaxStyle, TextAttributes } from "@opentui/core"
+import { SyntaxStyle, TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
 import { attention, drift } from "../plan.ts"
 import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
@@ -25,6 +25,8 @@ const BANNER: Record<ReviewReason, string> = {
 }
 
 const syntax = SyntaxStyle.create()
+const DETAIL_ID = "plan-review-detail"
+const rowID = (stepID: string) => `plan-review-step-${stepID}`
 
 function alternativesTable(plan: Plan) {
   if (!plan.alternatives?.length) return null
@@ -176,7 +178,13 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
     if (action === "revise") props.panel.close()
   }
 
-  const move = (delta: number) => setSelected((index) => Math.max(0, Math.min(visible().length - 1, index + delta)))
+  let scroll: ScrollBoxRenderable | undefined
+  const page = () => Math.max(3, (scroll?.height ?? 20) - 2)
+  const move = (delta: number) => {
+    setSelected((index) => Math.max(0, Math.min(visible().length - 1, index + delta)))
+    const current = step()
+    if (current) scroll?.scrollChildIntoView(rowID(current.id))
+  }
 
   props.ctx.keymap.layer(() => ({
     enabled: () => props.panel.focused,
@@ -195,6 +203,10 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "x", title: "Execute / continue", group: "Plan", run: () => submit("execute") },
       { bind: ".", title: "Show or fold routine steps", group: "Plan", run: () => setShowAll((value) => !value) },
       { bind: "d", title: "Open diff viewer", group: "Plan", run: () => props.ctx.keymap.dispatch("diff.open") },
+      { bind: "pagedown,ctrl+d", title: "Scroll down", group: "Plan", run: () => scroll?.scrollBy(page()) },
+      { bind: "pageup,ctrl+u", title: "Scroll up", group: "Plan", run: () => scroll?.scrollBy(-page()) },
+      { bind: "home,g", title: "Scroll to top", group: "Plan", run: () => scroll?.scrollTo(0) },
+      { bind: "end,shift+g", title: "Scroll to bottom", group: "Plan", run: () => scroll?.scrollTo(scroll.scrollHeight) },
       { bind: "o", title: "Toggle summary", group: "Plan", run: () => setShowSummary((value) => !value) },
       { bind: "f", title: "Toggle fullscreen", group: "Plan", run: () => props.panel.toggleFullscreen() },
       { bind: "q,escape", title: "Close plan", group: "Plan", run: () => props.panel.close() },
@@ -249,16 +261,19 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
         </text>
       </Show>
 
+      <scrollbox
+        ref={(element: ScrollBoxRenderable) => (scroll = element)}
+        flexGrow={1}
+        scrollbarOptions={{ visible: true }}
+      >
       <Switch>
         <Match when={props.plan.state === "done"}>
-          <scrollbox flexGrow={1} scrollbarOptions={{ visible: false }}>
-            <markdown
-              content={digestMarkdown(props.plan, directory)}
-              syntaxStyle={syntax}
-              conceal
-              fg={theme.markdown.text}
-            />
-          </scrollbox>
+          <markdown
+            content={digestMarkdown(props.plan, directory)}
+            syntaxStyle={syntax}
+            conceal
+            fg={theme.markdown.text}
+          />
         </Match>
         <Match when={props.plan.state !== "done"}>
           <Show when={showSummary() && props.plan.reviewReason === "plan"}>
@@ -304,6 +319,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                 const off = () => drift(item, directory).length > 0
                 return (
                   <box
+                    id={rowID(item.id)}
                     flexDirection="row"
                     gap={1}
                     backgroundColor={active() ? theme.background.raised.high : undefined}
@@ -353,8 +369,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
 
           <Show when={step()}>
             {(current) => (
-              <scrollbox flexGrow={1} scrollbarOptions={{ visible: false }}>
-                <box paddingTop={1}>
+                <box id={DETAIL_ID} paddingTop={1}>
                   <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
                     {current().id}. {draft().steps[current().id]?.edit?.title ?? current().title}
                   </text>
@@ -368,21 +383,21 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                     {(diagram) => <DiagramView theme={theme} source={diagram()} />}
                   </Show>
                 </box>
-              </scrollbox>
             )}
           </Show>
         </Match>
       </Switch>
+      </scrollbox>
 
       <text fg={theme.text.muted} flexShrink={0}>
         {chatHint(props.ctx)}
       </text>
       <text fg={theme.text.muted} flexShrink={0}>
         {props.plan.state === "done"
-          ? "d diff · f fullscreen · q close"
+          ? "pgup/pgdn scroll · d diff · f fullscreen · q close"
           : reviewing()
-            ? "j/k · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
-            : "j/k · c comment · . fold · d diff · f fullscreen · q close"}
+            ? "j/k · pgup/pgdn scroll · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
+            : "j/k · pgup/pgdn scroll · c comment · . fold · d diff · f fullscreen · q close"}
       </text>
     </box>
   )

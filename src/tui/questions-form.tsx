@@ -1,13 +1,15 @@
 /** @jsxImportSource @opentui/solid */
 import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
-import { TextAttributes } from "@opentui/core"
+import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
 import { createMemo, createSignal, For, Show } from "solid-js"
 import type { Question, Questions } from "../schema.ts"
 import { chatHint, type State } from "./api.ts"
 import { formRows, initialAnswers, jumpQuestion, optionsOf, toggle, type AnswerDraft } from "./draft.ts"
 
 type Ctx = Plugin.Context
+
+const cursorID = (row: number) => `plan-review-question-row-${row}`
 
 export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput; questions: Questions }) {
   const theme = props.ctx.theme
@@ -33,8 +35,16 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
       state.answers[sessionID()] = target
     })
 
-  const move = (delta: number) => setCursor((at) => Math.max(0, Math.min(rows().length - 1, at + delta)))
-  const jump = (delta: 1 | -1) => setCursor((at) => jumpQuestion(rows(), at, delta))
+  let scroll: ScrollBoxRenderable | undefined
+  const reveal = () => scroll?.scrollChildIntoView(cursorID(cursor()))
+  const move = (delta: number) => {
+    setCursor((at) => Math.max(0, Math.min(rows().length - 1, at + delta)))
+    reveal()
+  }
+  const jump = (delta: 1 | -1) => {
+    setCursor((at) => jumpQuestion(rows(), at, delta))
+    reveal()
+  }
 
   const typeAnswer = async (question: Question) => {
     const value = await props.ctx.ui.dialog.prompt({
@@ -144,7 +154,11 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
       <text attributes={TextAttributes.BOLD} fg={theme.text.base} flexShrink={0}>
         {props.questions.questions.length} question(s) before planning
       </text>
-      <scrollbox flexGrow={1} scrollbarOptions={{ visible: false }}>
+      <scrollbox
+        ref={(element: ScrollBoxRenderable) => (scroll = element)}
+        flexGrow={1}
+        scrollbarOptions={{ visible: true }}
+      >
         <box flexDirection="column" gap={1}>
           <For each={props.questions.questions}>
             {(question, qi) => {
@@ -165,6 +179,7 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
                     when={question.kind !== "text"}
                     fallback={
                       <text
+                        id={cursorID(rowIndex(qi()))}
                         fg={isCursor(qi()) ? theme.text.base : theme.text.muted}
                         onMouseUp={() => setCursor(rowIndex(qi()))}
                       >
@@ -182,7 +197,11 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
                         const recommended = question.recommended?.includes(option.value)
                         const description = "description" in option ? option.description : undefined
                         return (
-                          <text fg={here() ? theme.text.base : theme.text.muted} onMouseUp={() => setCursor(rowIndex(qi(), oi()))}>
+                          <text
+                            id={cursorID(rowIndex(qi(), oi()))}
+                            fg={here() ? theme.text.base : theme.text.muted}
+                            onMouseUp={() => setCursor(rowIndex(qi(), oi()))}
+                          >
                             {here() ? "› " : "  "}
                             {mark()} {option.label}
                             {recommended ? " ★" : ""}
@@ -197,6 +216,7 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
             }}
           </For>
           <text
+            id={cursorID(rows().length - 1)}
             attributes={TextAttributes.BOLD}
             fg={row()?.kind === "send" ? theme.text.feedback.success.base : theme.text.muted}
             onMouseUp={() => void submit()}

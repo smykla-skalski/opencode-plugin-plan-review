@@ -25,3 +25,10 @@ describe("published TUI files", () => {
       assert.match(readFileSync(file, "utf8"), /^\/\*\* @jsxImportSource @opentui\/solid \*\//)
     })
 })
+
+describe("tool inputs", () => {
+  it("wraps plan_propose in one object so the tool line stays one line", async () => {
+    const { ProposeInputSchema } = await import("../src/schema.ts")
+    assert.deepEqual(Object.keys(ProposeInputSchema.shape), ["plan"])
+  })
+})

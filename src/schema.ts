@@ -58,6 +58,12 @@ export const PlanInputSchema = z.object({
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
 
+/** Wrapped in one object so opencode's tool line shows `plan_propose`, not every text field in full. */
+export const ProposeInputSchema = z.object({
+  plan: PlanInputSchema.describe("The whole plan as one object: title, summary, steps, and optional diagram and alternatives."),
+})
+export type ProposeInput = z.infer<typeof ProposeInputSchema>
+
 export const CheckSchema = z.object({
   outcome: z.enum(["pass", "fail", "none"]).describe("pass/fail of the check you ran; none when nothing was verifiable."),
   summary: z.string().max(500).describe("One line: what you verified and what it showed."),

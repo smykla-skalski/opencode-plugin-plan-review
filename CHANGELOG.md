@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- `plan_propose` takes the plan as one `plan` object, so the timeline shows a single `plan_propose` line instead of every text field in full.
+- Proposing a plan clears questions still pending from earlier, so the panel shows the new plan instead of an obsolete form.
+
 ## 0.1.2
 
 - Fix the TUI panel not loading when installed from npm: the JSX runtime is now declared per file instead of relying on the unshipped tsconfig.

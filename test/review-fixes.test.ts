@@ -168,3 +168,92 @@ describe("store.exclusive", () => {
     assert.equal(await store.exclusive("ses_1", async () => 42), 42)
   })
 })
+
+describe("durable history", () => {
+  it("keeps same-version decisions, steps, and amendments in order after restart", async () => {
+    const data = new Map<string, unknown>()
+    const kv: KV = {
+      async get(key) { return data.get(key) },
+      async set(key, value) { data.set(key, structuredClone(value)) },
+      async remove(key) { data.delete(key) },
+    }
+    const store = createStore(kv)
+    const first: Plan = {
+      ...plan([["a.ts"]]),
+      state: "review",
+      steps: [{ ...plan([["a.ts"]]).steps[0]!, status: "proposed" }],
+    }
+    const decision = {
+      sessionID: first.sessionID,
+      version: first.version,
+      action: "execute" as const,
+      note: "Ship the safe path",
+      decisions: [{ stepID: "s1", verdict: "approve" as const, comment: "Reviewed" }],
+    }
+    await store.exclusive(first.sessionID, async () => {
+      await store.saveWithHistory(first, "proposed")
+    })
+    const approved = review(first, decision)
+    assert.ok(approved.ok)
+    await store.exclusive(first.sessionID, async () => {
+      await store.saveWithHistory(approved.value, "reviewed", decision)
+    })
+    const touched = recordTouch({ ...approved.value, steps: [{ ...approved.value.steps[0]!, status: "in_progress" }] }, ["/repo/a.ts"], "/repo")
+    await store.exclusive(first.sessionID, async () => {
+      await store.saveWithHistory(touched, "touch")
+    })
+    const amended = amend(touched, { reason: "Need test", steps: [step(["b.ts"]) ] }, "/repo")
+    assert.ok(amended.ok)
+    await store.exclusive(first.sessionID, async () => {
+      await store.saveWithHistory(amended.value.plan, "amended")
+    })
+
+    const restarted = createStore(kv)
+    const history = await restarted.history(first.sessionID)
+    assert.deepEqual(history.map((entry) => entry.id), [1, 2, 3, 4])
+    assert.deepEqual(history.map((entry) => entry.reason), ["proposed", "reviewed", "touch", "amended"])
+    assert.deepEqual(history.map((entry) => entry.version), [1, 1, 1, 2])
+    assert.deepEqual(history[1]?.review, decision)
+    assert.deepEqual(history[0]?.plan.steps[0]?.status, "proposed")
+    assert.deepEqual(history[3]?.plan.steps.at(-1)?.origin, "amendment")
+    assert.equal((await restarted.plan(first.sessionID))?.version, 2)
+    assert.equal(data.has(`history/${first.sessionID}/1`), true)
+    assert.equal(data.has(`history/${first.sessionID}/4`), true)
+  })
+
+  it("does not erase a damaged event log", async () => {
+    const data = new Map<string, unknown>([["history/ses_1/count", 1], ["history/ses_1/1", { bad: true }]])
+    const kv: KV = {
+      async get(key) { return data.get(key) },
+      async set(key, value) { data.set(key, value) },
+      async remove(key) { data.delete(key) },
+    }
+    const store = createStore(kv)
+    await assert.rejects(store.history("ses_1"))
+    await assert.rejects(store.exclusive("ses_1", () => store.saveWithHistory(plan([["a.ts"]]), "step")))
+    assert.deepEqual(data.get("history/ses_1/1"), { bad: true })
+  })
+
+  it("recovers an event committed before the count update", async () => {
+    const data = new Map<string, unknown>()
+    let failCount = true
+    const kv: KV = {
+      async get(key) { return data.get(key) },
+      async set(key, value) {
+        if (key === "history/ses_1/count" && failCount) throw new Error("disk interrupted")
+        data.set(key, structuredClone(value))
+      },
+      async remove(key) { data.delete(key) },
+    }
+    const first = plan([["a.ts"]])
+    const before = createStore(kv)
+    await assert.rejects(before.exclusive("ses_1", () => before.saveWithHistory(first, "proposed")))
+    assert.equal(data.has("history/ses_1/1"), true)
+    failCount = false
+    const restarted = createStore(kv)
+    assert.equal((await restarted.plan("ses_1"))?.state, "executing")
+    assert.deepEqual((await restarted.history("ses_1")).map((event) => event.id), [1])
+    await restarted.exclusive("ses_1", () => restarted.saveWithHistory(first, "step"))
+    assert.deepEqual((await restarted.history("ses_1")).map((event) => event.id), [1, 2])
+  })
+})

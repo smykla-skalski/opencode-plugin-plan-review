@@ -44,12 +44,17 @@ const plugin: Plugin.Plugin = {
       async get({ sessionID }) {
         return { plan: (await store.plan(sessionID)) ?? null, questions: (await store.questions(sessionID)) ?? null }
       },
+      async history({ sessionID }) {
+        return { events: await store.history(sessionID) }
+      },
       async review(input) {
         const next = await store.exclusive(input.sessionID, async () => {
           const plan = await store.plan(input.sessionID)
           if (!plan) return { ok: false as const, error: "No plan for this session." }
           const result = review(plan, input)
-          if (result.ok) await store.savePlan(result.value)
+          if (result.ok) {
+            await store.saveWithHistory(result.value, "reviewed", input)
+          }
           return result
         })
         if (!next.ok) return { ok: false, error: next.error }
@@ -80,10 +85,13 @@ const plugin: Plugin.Plugin = {
     const transition = async <A extends { readonly plan: Plan }>(
       sessionID: string,
       apply: (plan: Plan | undefined) => Result<A>,
+      reason: (value: A) => "proposed" | "amended" | "step" | "checkpoint" | "done",
     ) => {
       const next = await store.exclusive(sessionID, async () => {
         const result = apply(await store.plan(sessionID))
-        if (result.ok) await store.savePlan(result.value.plan)
+        if (result.ok) {
+          await store.saveWithHistory(result.value.plan, reason(result.value))
+        }
         return result
       })
       return next
@@ -112,6 +120,7 @@ const plugin: Plugin.Plugin = {
           if (!planners.has(context.agent)) return { content: `Only ${[...planners].join(" or ")} can propose plans.` }
           const next = await transition(context.sessionID, (previous) =>
             wrap(propose(previous, input, context.sessionID, Date.now())),
+            () => "proposed",
           )
           if (!next.ok) return { content: `Plan rejected: ${next.error}` }
           const { plan } = next.value
@@ -146,6 +155,7 @@ const plugin: Plugin.Plugin = {
         async execute(input, context) {
           const next = await transition(context.sessionID, (plan) =>
             plan ? wrap(updateStep(plan, input, options.checkpoint)) : missing("There is no plan in this session."),
+            (value) => value.plan.state === "done" ? "done" : value.plan.state === "review" ? "checkpoint" : "step",
           )
           if (!next.ok) return { content: next.error }
           const { plan } = next.value
@@ -166,6 +176,7 @@ const plugin: Plugin.Plugin = {
         async execute(input, context) {
           const next = await transition(context.sessionID, (plan) =>
             plan ? amend(plan, input, directory) : missing("There is no plan in this session; use plan_propose."),
+            (value) => value.paused ? "amended" : "step",
           )
           if (!next.ok) return { content: next.error }
           await changed(context.sessionID, next.value.paused ? "amended" : "step", next.value.plan.version)
@@ -215,10 +226,15 @@ const plugin: Plugin.Plugin = {
       if (event.status !== "completed" || event.agent !== options.buildAgent || !EDIT_TOOLS.has(event.tool)) return
       const files = editedFiles(event.result.output)
       if (!files.length) return
-      await store.exclusive(event.sessionID, async () => {
+      const recorded = await store.exclusive(event.sessionID, async () => {
         const plan = await store.plan(event.sessionID)
-        if (plan?.state === "executing") await store.savePlan(recordTouch(plan, files, directory))
+        if (plan) {
+          const next = recordTouch(plan, files, directory)
+          await store.saveWithHistory(next, "touch")
+          return next.version
+        }
       })
+      if (recorded) await changed(event.sessionID, "touch", recorded)
     })
   },
 }

@@ -22,6 +22,8 @@ Do not reuse a version already published to npm, even if it was unpublished.
 | Environment          | `npm`                          |
 | Allowed actions      | Direct `npm publish`           |
 
-Replace the current no-environment trusted publisher with one for `--env npm`, using `npm trust list`, `npm trust revoke`, and `npm trust github @smykla-skalski/opencode-plugin-plan-review --file publish.yml --repo smykla-skalski/opencode-plugin-plan-review --env npm --allow-publish`. Set `NPM_PUBLISH_ENABLED=true` after the new publisher is active. The workflow uses GitHub's OIDC identity, so it needs no npm token or repository secret, and npm generates provenance automatically for this public repository.
+Keep the trusted publisher aligned with the fields above. The workflow uses
+GitHub's OIDC identity, so it needs no npm token or repository secret. npm
+generates provenance automatically for this public repository.
 
 Sources: [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/), [npm trust CLI](https://docs.npmjs.com/cli/v11/commands/npm-trust/), [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).

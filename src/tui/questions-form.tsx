@@ -131,7 +131,7 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
       { bind: "space", title: "Toggle option", group: "Questions", run: pick },
       { bind: "ctrl+s", title: "Send answers", group: "Questions", run: submit },
       { bind: "f", title: "Toggle fullscreen", group: "Questions", run: () => props.panel.toggleFullscreen() },
-      { bind: "q,escape", title: "Close", group: "Questions", run: () => props.panel.close() },
+      { bind: "q", title: "Close", group: "Questions", run: () => props.panel.close() },
     ],
   }))
 

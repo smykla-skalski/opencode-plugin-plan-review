@@ -259,7 +259,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "end,shift+g", title: "Scroll to bottom", group: "Plan", run: () => scroll?.scrollTo(scroll.scrollHeight) },
       { bind: "o", title: "Toggle summary", group: "Plan", run: () => setShowSummary((value) => !value) },
       { bind: "f", title: "Toggle fullscreen", group: "Plan", run: () => props.panel.toggleFullscreen() },
-      { bind: "q,escape", title: "Close plan", group: "Plan", run: () => props.panel.close() },
+      { bind: "q", title: "Close plan", group: "Plan", run: () => props.panel.close() },
     ],
   }))
 
@@ -331,19 +331,19 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
             <box flexShrink={0} flexDirection="column">
               <Section theme={theme} title="Summary" aside="o hides" />
               <markdown content={props.plan.summary} syntaxStyle={syntax} conceal fg={theme.markdown.text} />
+              <Show when={props.plan.diagram}>
+                {(diagram) => (
+                  <>
+                    <Section theme={theme} title="Overview" />
+                    <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
+                  </>
+                )}
+              </Show>
               <Show when={props.plan.sequence}>
                 {(sequence) => (
                   <>
                     <Section theme={theme} title="Sequence" />
                     <DiagramView theme={theme} source={sequence()} width={diagramWidth()} offset={offset()} />
-                  </>
-                )}
-              </Show>
-              <Show when={props.plan.diagram}>
-                {(diagram) => (
-                  <>
-                    <Section theme={theme} title="Diagram" />
-                    <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
                   </>
                 )}
               </Show>

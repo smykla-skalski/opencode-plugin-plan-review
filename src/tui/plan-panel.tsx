@@ -331,6 +331,14 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
             <box flexShrink={0} flexDirection="column">
               <Section theme={theme} title="Summary" aside="o hides" />
               <markdown content={props.plan.summary} syntaxStyle={syntax} conceal fg={theme.markdown.text} />
+              <Show when={props.plan.sequence}>
+                {(sequence) => (
+                  <>
+                    <Section theme={theme} title="Sequence" />
+                    <DiagramView theme={theme} source={sequence()} width={diagramWidth()} offset={offset()} />
+                  </>
+                )}
+              </Show>
               <Show when={props.plan.diagram}>
                 {(diagram) => (
                   <>

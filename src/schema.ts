@@ -18,6 +18,18 @@ function tolerant<T extends z.ZodType>(schema: T) {
   ])
 }
 
+const OTHER_DIAGRAM = /^(flowchart|graph|classDiagram|stateDiagram|erDiagram|gantt|pie|journey|mindmap|timeline|gitGraph)\b/
+
+/** Strips fences and adds the `sequenceDiagram` header models often leave out of a line list. */
+export function sequenceSource(source: string) {
+  const body = source
+    .replace(/^\s*```(?:mermaid)?\s*\n?/, "")
+    .replace(/\n?\s*```\s*$/, "")
+    .trim()
+  if (/^sequenceDiagram\b/.test(body) || OTHER_DIAGRAM.test(body)) return body
+  return `sequenceDiagram\n${body}`
+}
+
 /** Lines of text, joined; a list keeps long text off opencode's one-line tool summary. */
 const textLines = z.union([z.array(z.string()), z.string()]).transform((value) =>
   Array.isArray(value) ? value.join("\n") : value,
@@ -64,12 +76,33 @@ export const StepInputSchema = z.object({
 })
 export type StepInput = z.infer<typeof StepInputSchema>
 
-export const AlternativeSchema = z.object({
-  name: z.string().min(1).max(120),
-  pros: z.array(z.string()).default([]),
-  cons: z.array(z.string()).default([]),
-  chosen: z.boolean().default(false),
-})
+/** A list of points, also accepted as one "a; b; c" string. */
+const points = z
+  .union([z.array(z.string()), z.string()])
+  .transform((value) =>
+    Array.isArray(value)
+      ? value
+      : value
+          .split(";")
+          .map((point) => point.trim())
+          .filter(Boolean),
+  )
+  .default([])
+
+const CHOSEN_MARK = /\s*\(chosen\)\s*/i
+
+export const AlternativeSchema = z
+  .object({
+    name: z.string().min(1).max(120),
+    pros: points,
+    cons: points,
+    chosen: z.boolean().optional(),
+  })
+  .transform(({ name, chosen, ...rest }) => ({
+    ...rest,
+    name: name.replace(CHOSEN_MARK, " ").trim(),
+    chosen: chosen ?? CHOSEN_MARK.test(name),
+  }))
 export type Alternative = z.infer<typeof AlternativeSchema>
 
 export const PlanInputSchema = z.object({
@@ -77,6 +110,7 @@ export const PlanInputSchema = z.object({
   summary: z.string().max(4000).describe("Goal and approach in a few sentences of markdown."),
   steps: z.array(StepInputSchema).min(1).max(40),
   diagram: z.string().max(8000).optional().describe("Optional mermaid source for the whole change (flowchart or sequenceDiagram). Keep each node label on one short line."),
+  sequence: z.string().max(8000).optional().describe("Mermaid sequenceDiagram of the runtime interaction the change touches."),
   alternatives: z.array(AlternativeSchema).max(8).optional().describe("Approaches considered; mark the chosen one."),
 })
 export type PlanInput = z.infer<typeof PlanInputSchema>
@@ -91,6 +125,19 @@ export const ProposeInputSchema = z.object({
     .pipe(z.string().max(4000))
     .describe("Goal and approach, as a list of short paragraphs (markdown)."),
   steps: tolerant(PlanInputSchema.shape.steps),
+  sequence: textLines
+    .transform(sequenceSource)
+    .pipe(
+      z
+        .string()
+        .max(8000)
+        .refine((source) => /^sequenceDiagram\b/.test(source), {
+          message: "sequence must be a mermaid sequenceDiagram, not another diagram type",
+        }),
+    )
+    .describe(
+      "Required: a mermaid sequenceDiagram, as a list of lines, of the runtime interaction the change touches (participants and the calls between them, before and after where it helps).",
+    ),
   diagram: textLines
     .pipe(z.string().max(8000))
     .optional()

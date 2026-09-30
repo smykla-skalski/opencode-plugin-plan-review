@@ -21,6 +21,7 @@ const fence = (source: string) => ["```mermaid", source.trim(), "```"].join("\n"
 /** Markdown view of a plan: the tool result the model sees and what any client without the panel shows. */
 export function planMarkdown(plan: Plan) {
   const lines = [`## ${plan.title} (v${plan.version})`, "", plan.summary.trim()]
+  if (plan.sequence) lines.push("", fence(plan.sequence))
   if (plan.diagram) lines.push("", fence(plan.diagram))
   if (plan.alternatives?.length) {
     lines.push("", "| Option | Pros | Cons | Chosen |", "| --- | --- | --- | --- |")

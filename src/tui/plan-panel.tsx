@@ -28,12 +28,50 @@ const syntax = SyntaxStyle.create()
 const DETAIL_ID = "plan-review-detail"
 const rowID = (stepID: string) => `plan-review-step-${stepID}`
 
-function alternativesTable(plan: Plan) {
-  if (!plan.alternatives?.length) return null
-  const rows = plan.alternatives.map(
-    (alt) => `| ${alt.chosen ? "✓ " : ""}${alt.name} | ${alt.pros.join("; ")} | ${alt.cons.join("; ")} |`,
+const HELP = [
+  "↑/↓ pick a step; past the ends they scroll · pgup/pgdn page · g/G top/bottom",
+  "←/→ pan a wide diagram · f fullscreen · o hide or show the summary",
+  "a approve · r reject · v ask to revise · e edit · c comment · A approve all undecided",
+  "n general feedback · . show or fold routine steps · d open the diff viewer",
+  "s send the review back to the agent · x run the approved steps · q close",
+]
+
+function Section(props: { theme: Ctx["theme"]; title: string; aside?: string }) {
+  return (
+    <box flexDirection="row" flexShrink={0} paddingTop={1}>
+      <text attributes={TextAttributes.BOLD} fg={props.theme.text.feedback.info.base} flexGrow={1}>
+        {props.title.toUpperCase()}
+      </text>
+      <Show when={props.aside}>
+        <text fg={props.theme.text.muted}>{props.aside}</text>
+      </Show>
+    </box>
   )
-  return ["| Option | Pros | Cons |", "| --- | --- | --- |", ...rows].join("\n")
+}
+
+function Alternatives(props: { theme: Ctx["theme"]; plan: Plan }) {
+  return (
+    <For each={props.plan.alternatives ?? []}>
+      {(alt) => (
+        <box flexDirection="column" flexShrink={0} paddingBottom={1}>
+          <text
+            fg={alt.chosen ? props.theme.text.base : props.theme.text.muted}
+            attributes={alt.chosen ? TextAttributes.BOLD : undefined}
+          >
+            {alt.chosen ? "✓ " : "  "}
+            {alt.name}
+            {alt.chosen ? "  (chosen)" : ""}
+          </text>
+          <For each={alt.pros}>
+            {(pro) => <text fg={props.theme.text.feedback.success.base}>{`    + ${pro}`}</text>}
+          </For>
+          <For each={alt.cons}>
+            {(con) => <text fg={props.theme.text.feedback.error.base}>{`    − ${con}`}</text>}
+          </For>
+        </box>
+      )}
+    </For>
+  )
 }
 
 function stepMarkdown(step: Step, draft: StepDraft | undefined, directory: string) {
@@ -63,6 +101,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
   const [selected, setSelected] = createSignal(0)
   const [showSummary, setShowSummary] = createSignal(true)
   const [showAll, setShowAll] = createSignal(false)
+  const [offset, setOffset] = createSignal(0)
+  const [help, setHelp] = createSignal(false)
+  const diagramWidth = () => Math.max(20, props.panel.width - 4)
 
   const draft = createMemo((): PlanDraft => {
     const stored = props.state.drafts.plans[sessionID()]
@@ -209,6 +250,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       { bind: "x", title: "Execute / continue", group: "Plan", run: () => submit("execute") },
       { bind: ".", title: "Show or fold routine steps", group: "Plan", run: () => setShowAll((value) => !value) },
       { bind: "d", title: "Open diff viewer", group: "Plan", run: () => props.ctx.keymap.dispatch("diff.open") },
+      { bind: "right,l", title: "Pan diagram right", group: "Plan", run: () => setOffset((at) => at + 12) },
+      { bind: "left,h", title: "Pan diagram left", group: "Plan", run: () => setOffset((at) => Math.max(0, at - 12)) },
+      { bind: "?", title: "Show keys", group: "Plan", run: () => setHelp((value) => !value) },
       { bind: "pagedown,ctrl+d", title: "Scroll down", group: "Plan", run: () => scroll?.scrollBy(page()) },
       { bind: "pageup,ctrl+u", title: "Scroll up", group: "Plan", run: () => scroll?.scrollBy(-page()) },
       { bind: "home,g", title: "Scroll to top", group: "Plan", run: () => scroll?.scrollTo(0) },
@@ -270,7 +314,8 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       <scrollbox
         ref={(element: ScrollBoxRenderable) => (scroll = element)}
         flexGrow={1}
-        scrollbarOptions={{ visible: true }}
+        verticalScrollbarOptions={{ visible: true }}
+        horizontalScrollbarOptions={{ visible: false }}
       >
       <Switch>
         <Match when={props.plan.state === "done"}>
@@ -283,38 +328,39 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
         </Match>
         <Match when={props.plan.state !== "done"}>
           <Show when={showSummary() && props.plan.reviewReason === "plan"}>
-            <box flexShrink={0}>
+            <box flexShrink={0} flexDirection="column">
+              <Section theme={theme} title="Summary" aside="o hides" />
               <markdown content={props.plan.summary} syntaxStyle={syntax} conceal fg={theme.markdown.text} />
               <Show when={props.plan.diagram}>
-                {(diagram) => <DiagramView theme={theme} source={diagram()} />}
-              </Show>
-              <Show when={alternativesTable(props.plan)}>
-                {(table) => (
-                  <markdown
-                    content={table()}
-                    syntaxStyle={syntax}
-                    fg={theme.markdown.text}
-                    tableOptions={{ style: "grid", cellPaddingX: 1 }}
-                  />
+                {(diagram) => (
+                  <>
+                    <Section theme={theme} title="Diagram" />
+                    <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
+                  </>
                 )}
+              </Show>
+              <Show when={props.plan.alternatives?.length}>
+                <Section theme={theme} title="Alternatives considered" />
+                <Alternatives theme={theme} plan={props.plan} />
               </Show>
             </box>
           </Show>
 
-          <box flexDirection="row" gap={1} flexShrink={0}>
-            <text fg={theme.text.muted} flexGrow={1}>
-              Steps
-            </text>
-            <text>
-              <span style={{ fg: theme.text.feedback.success.base }}>{counts().approved}✓ </span>
-              <span style={{ fg: theme.text.feedback.error.base }}>{counts().rejected}✗ </span>
-              <span style={{ fg: theme.text.feedback.warning.base }}>{counts().revise}✎ </span>
-              <span style={{ fg: theme.text.feedback.success.base }}>{counts().done}● </span>
-              <span style={{ fg: theme.text.muted }}>
-                {counts().other}· {counts().comments}💬
-              </span>
-            </text>
-          </box>
+          <Section theme={theme} title={`Steps (${props.plan.steps.length})`} />
+          <text flexShrink={0}>
+            <span style={{ fg: theme.text.feedback.success.base }}>{counts().approved} approved</span>
+            <span style={{ fg: theme.text.muted }}> · </span>
+            <span style={{ fg: theme.text.feedback.error.base }}>{counts().rejected} rejected</span>
+            <span style={{ fg: theme.text.muted }}> · </span>
+            <span style={{ fg: theme.text.feedback.warning.base }}>{counts().revise} to revise</span>
+            <span style={{ fg: theme.text.muted }}> · {counts().other} undecided</span>
+            <Show when={counts().done}>
+              <span style={{ fg: theme.text.feedback.success.base }}> · {counts().done} done</span>
+            </Show>
+            <Show when={counts().comments}>
+              <span style={{ fg: theme.text.muted }}> · {counts().comments} commented</span>
+            </Show>
+          </text>
 
           <box flexDirection="column" flexShrink={0}>
             <For each={visible()}>
@@ -375,7 +421,8 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
 
           <Show when={step()}>
             {(current) => (
-                <box id={DETAIL_ID} paddingTop={1}>
+                <box id={DETAIL_ID} flexDirection="column">
+                  <Section theme={theme} title="Selected step" />
                   <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
                     {current().id}. {draft().steps[current().id]?.edit?.title ?? current().title}
                   </text>
@@ -386,7 +433,9 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                     fg={theme.markdown.text}
                   />
                   <Show when={current().diagram}>
-                    {(diagram) => <DiagramView theme={theme} source={diagram()} />}
+                    {(diagram) => (
+                      <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
+                    )}
                   </Show>
                 </box>
             )}
@@ -395,15 +444,18 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
       </Switch>
       </scrollbox>
 
-      <text fg={theme.text.muted} flexShrink={0}>
-        {chatHint(props.ctx)}
-      </text>
-      <text fg={theme.text.muted} flexShrink={0}>
+      <Show when={help()}>
+        <box flexDirection="column" flexShrink={0} paddingTop={1}>
+          <For each={HELP}>{(line) => <text fg={theme.text.base}>{line}</text>}</For>
+          <text fg={theme.text.muted}>{chatHint(props.ctx)}</text>
+        </box>
+      </Show>
+      <text fg={theme.text.muted} flexShrink={0} wrapMode="none" truncate>
         {props.plan.state === "done"
-          ? "pgup/pgdn scroll · d diff · f fullscreen · q close"
+          ? "↑/↓ scroll · d diff · f fullscreen · q close · ? keys"
           : reviewing()
-            ? "↑/↓ steps & scroll · pgup/pgdn · a approve · r reject · v revise · e edit · c comment · A all · . fold · s send · x run · d diff · q"
-            : "↑/↓ steps & scroll · pgup/pgdn · c comment · . fold · d diff · f fullscreen · q close"}
+            ? "↑/↓ steps · a/r/v decide · c comment · s send · x run · ? keys & chat"
+            : "↑/↓ steps · c comment · d diff · q close · ? keys & chat"}
       </text>
     </box>
   )

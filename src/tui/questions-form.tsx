@@ -157,7 +157,8 @@ export function QuestionsForm(props: { ctx: Ctx; state: State; panel: PanelInput
       <scrollbox
         ref={(element: ScrollBoxRenderable) => (scroll = element)}
         flexGrow={1}
-        scrollbarOptions={{ visible: true }}
+        verticalScrollbarOptions={{ visible: true }}
+        horizontalScrollbarOptions={{ visible: false }}
       >
         <box flexDirection="column" gap={1}>
           <For each={props.questions.questions}>

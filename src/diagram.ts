@@ -18,6 +18,27 @@ export function normalizeMermaid(source: string) {
   return lines.join("\n").trim()
 }
 
+export interface Window {
+  readonly lines: string[]
+  readonly offset: number
+  readonly left: boolean
+  readonly right: boolean
+}
+
+/** The slice of a wide diagram that fits `width` columns, starting at a clamped horizontal `offset`. */
+export function pan(art: string, offset: number, width: number): Window {
+  const rows = art.split("\n").map((line) => Array.from(line))
+  const widest = Math.max(0, ...rows.map((row) => row.length))
+  const span = Math.max(1, width)
+  const start = Math.max(0, Math.min(offset, widest - span))
+  return {
+    lines: rows.map((row) => row.slice(start, start + span).join("")),
+    offset: start,
+    left: start > 0,
+    right: start + span < widest,
+  }
+}
+
 /** Text-art rendering of a mermaid diagram, or null when the source cannot be drawn. */
 export function renderDiagram(source: string): string | null {
   try {

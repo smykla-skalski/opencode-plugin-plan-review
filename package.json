@@ -57,7 +57,7 @@
     "@opentui/core": "0.5.12",
     "@opentui/solid": "0.5.12",
     "@types/node": "24.19.1",
-    "solid-js": "1.9.12",
+    "solid-js": "1.9.15",
     "typescript": "7.0.2"
   },
   "scripts": {

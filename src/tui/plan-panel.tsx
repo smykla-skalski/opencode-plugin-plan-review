@@ -2,7 +2,7 @@
 import type { Plugin } from "@opencode/plugin/tui"
 import type { PanelInput } from "@opencode/plugin/tui/context"
 import { SyntaxStyle, TextAttributes, type ScrollBoxRenderable } from "@opentui/core"
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import { createMemo, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
 import { drift } from "../plan.ts"
 import { CHECK_ICON, digestMarkdown, STATUS_ICON } from "../render.ts"
 import type { Plan, ReviewReason, Risk, Step, Verdict } from "../schema.ts"
@@ -24,7 +24,6 @@ const BANNER: Record<ReviewReason, string> = {
   checkpoint: "⏸ Checkpoint: check the results before the next step",
 }
 
-const syntax = SyntaxStyle.create()
 const DETAIL_ID = "plan-review-detail"
 const rowID = (stepID: string) => `plan-review-step-${stepID}`
 
@@ -96,6 +95,10 @@ function stepMarkdown(step: Step, draft: StepDraft | undefined, directory: strin
 
 export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; plan: Plan }) {
   const theme = props.ctx.theme
+  const syntax = (SyntaxStyle.create as (owner?: unknown) => SyntaxStyle)(
+    (props.ctx.renderer as { nativeScene?: unknown }).nativeScene,
+  )
+  onCleanup(() => syntax.destroy())
   const directory = props.ctx.location?.directory ?? ""
   const sessionID = () => props.plan.sessionID
   const [selected, setSelected] = createSignal(0)
@@ -324,7 +327,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                 {(diagram) => (
                   <>
                     <Section theme={theme} title="Overview" />
-                    <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
+                    <DiagramView theme={theme} syntax={syntax} source={diagram()} width={diagramWidth()} offset={offset()} />
                   </>
                 )}
               </Show>
@@ -332,7 +335,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                 {(sequence) => (
                   <>
                     <Section theme={theme} title="Sequence" />
-                    <DiagramView theme={theme} source={sequence()} width={diagramWidth()} offset={offset()} />
+                    <DiagramView theme={theme} syntax={syntax} source={sequence()} width={diagramWidth()} offset={offset()} />
                   </>
                 )}
               </Show>
@@ -340,7 +343,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                 {(extra) => (
                   <>
                     <Section theme={theme} title={extra.title} />
-                    <DiagramView theme={theme} source={extra.source} width={diagramWidth()} offset={offset()} />
+                    <DiagramView theme={theme} syntax={syntax} source={extra.source} width={diagramWidth()} offset={offset()} />
                   </>
                 )}
               </For>
@@ -434,7 +437,7 @@ export function PlanPanel(props: { ctx: Ctx; state: State; panel: PanelInput; pl
                   />
                   <Show when={current().diagram}>
                     {(diagram) => (
-                      <DiagramView theme={theme} source={diagram()} width={diagramWidth()} offset={offset()} />
+                      <DiagramView theme={theme} syntax={syntax} source={diagram()} width={diagramWidth()} offset={offset()} />
                     )}
                   </Show>
                 </box>
